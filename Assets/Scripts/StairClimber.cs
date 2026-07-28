@@ -1,9 +1,11 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class StairClimber : MonoBehaviour
 {
-    private enum ExpectedFoot
+    private enum FootSide
     {
         Right,
         Left
@@ -12,36 +14,61 @@ public class StairClimber : MonoBehaviour
     [Header("References")]
     [SerializeField] private Animator animator;
     [SerializeField] private Transform characterRoot;
-    [SerializeField] private Transform stairsDirectionReference;
+    [SerializeField] private Transform stairsRoot;
 
-    [Header("Animator Names")]
+    [Header("Animator State Names")]
     [SerializeField] private string idleStateName = "Idle";
-    [SerializeField] private string stairStateName = "StairStep";
-    [SerializeField] private string stepTriggerName = "Step";
+    [SerializeField] private string rightStepStateName = "RightStep";
+    [SerializeField] private string leftStepStateName = "LeftStep";
 
-    [Header("Stair Settings")]
-    [SerializeField] private float stepHeight = 0.2f;
-    [SerializeField] private float stepDepth = 0.6f;
+    [Header("Stair Direction")]
+    [Tooltip("جهت بالا رفتن پله‌ها نسبت به آبجکت stairs")]
+    [SerializeField] private Vector3 climbLocalDirection = Vector3.right;
 
-    [Header("Animation Settings")]
-    [Range(0.1f, 0.9f)]
-    [SerializeField] private float rightFootPlantTime = 0.5f;
+    [Header("Foot Placement")]
+    [Tooltip("فاصله استخوان Foot تا کف کفش")]
+    [SerializeField] private float footBoneToSoleHeight = 0.18f;
 
-    [SerializeField] private float animationTransitionTime = 0.05f;
+    [Tooltip("جابه‌جایی محل قرارگرفتن پا روی عمق پله")]
+    [SerializeField] private float landingDepthOffset = 0f;
 
-    [Header("Game Settings")]
-    [SerializeField] private int targetStepCount = 20;
+    [Header("Animation Matching")]
+    [Range(0f, 0.4f)]
+    [SerializeField] private float leadingFootMatchStart = 0.05f;
 
-    private ExpectedFoot expectedFoot = ExpectedFoot.Right;
+    [Range(0.25f, 0.7f)]
+    [SerializeField] private float leadingFootMatchEnd = 0.48f;
 
-    private bool phaseIsPlaying;
-    private int completedSteps;
+    [Range(0.4f, 0.8f)]
+    [SerializeField] private float trailingFootMatchStart = 0.52f;
 
-    private Vector3 stepStartPosition;
-    private Vector3 stepMiddlePosition;
-    private Vector3 stepEndPosition;
+    [Range(0.7f, 1f)]
+    [SerializeField] private float trailingFootMatchEnd = 0.94f;
 
-    private int stepTriggerHash;
+    [SerializeField] private float transitionDuration = 0.08f;
+
+    [Header("Final Correction")]
+    [SerializeField] private float maximumFinalCorrection = 0.35f;
+
+    [Header("Input Queue")]
+    [Min(1)]
+    [SerializeField] private int maximumQueuedSteps = 1;
+
+    private readonly List<BoxCollider> steps = new List<BoxCollider>();
+    private readonly Queue<FootSide> commands = new Queue<FootSide>();
+
+    private Vector3 climbWorldDirection;
+    private Vector3 sideWorldDirection;
+
+    private int nextStepIndex;
+    private bool isMoving;
+    private bool isReady;
+
+    // پله‌ای که کاراکتر بعد از پایان انیمیشن روی آن ایستاده است.
+    private BoxCollider standingStep;
+
+    // هنگام Idle کف پا روی سطح پله قفل می‌ماند.
+    private bool lockStandingHeight;
 
     private void Awake()
     {
@@ -55,173 +82,285 @@ public class StairClimber : MonoBehaviour
             characterRoot = transform;
         }
 
-        stepTriggerHash = Animator.StringToHash(stepTriggerName);
+        BuildStepList();
+    }
 
-        if (animator != null)
+    private IEnumerator Start()
+    {
+        if (!ValidateReferences())
         {
-            animator.applyRootMotion = false;
+            yield break;
         }
-        else
-        {
-            Debug.LogError(
-                "StairClimber: کامپوننت Animator پیدا نشد.",
-                this
-            );
-        }
+
+        // در حالت Idle نباید Root Motion موقعیت کاراکتر را تغییر بدهد.
+        animator.applyRootMotion = false;
+        animator.speed = 1f;
+        animator.Play(idleStateName, 0, 0f);
+        animator.Update(0f);
+
+        // اولین پله‌ای که جلوی کاراکتر است انتخاب می‌شود.
+        nextStepIndex = FindFirstStepInFront();
+
+        isReady = true;
+        yield return null;
     }
 
     private void Update()
     {
-        // تست پای راست با کلید R
-        if (Input.GetKeyDown(KeyCode.R))
+        if (!isReady)
         {
-            CommandRightFoot();
+            return;
         }
 
-        // تست پای چپ با کلید L
-        if (Input.GetKeyDown(KeyCode.L))
+        Keyboard keyboard = Keyboard.current;
+        Mouse mouse = Mouse.current;
+
+        if (keyboard != null && keyboard.rKey.wasPressedThisFrame)
         {
-            CommandLeftFoot();
+            EnqueueStep(FootSide.Right);
         }
 
-        // کلیک چپ، پای نوبتی را حرکت می‌دهد.
-        if (Input.GetMouseButtonDown(0))
+        if (keyboard != null && keyboard.lKey.wasPressedThisFrame)
         {
-            CommandNextFoot();
+            EnqueueStep(FootSide.Left);
+        }
+
+        // کلیک چپ = پای راست
+        if (mouse != null && mouse.leftButton.wasPressedThisFrame)
+        {
+            EnqueueStep(FootSide.Right);
+        }
+
+        // کلیک راست = پای چپ
+        if (mouse != null && mouse.rightButton.wasPressedThisFrame)
+        {
+            EnqueueStep(FootSide.Left);
+        }
+
+        if (!isMoving && commands.Count > 0)
+        {
+            FootSide command = commands.Dequeue();
+            StartCoroutine(PlayStep(command));
         }
     }
 
-    private void CommandNextFoot()
+    private void LateUpdate()
     {
-        if (expectedFoot == ExpectedFoot.Right)
+        if (!isReady || !lockStandingHeight || standingStep == null)
         {
-            CommandRightFoot();
+            return;
         }
-        else
+
+        if (animator == null || characterRoot == null)
         {
-            CommandLeftFoot();
+            return;
         }
+
+        // Animator ابتدا Pose را محاسبه می‌کند؛ سپس ارتفاع کف پا اصلاح می‌شود.
+        LockFeetHeightToStep(standingStep);
     }
 
     public void CommandRightFoot()
     {
-        if (phaseIsPlaying)
-        {
-            return;
-        }
-
-        if (expectedFoot != ExpectedFoot.Right)
-        {
-            Debug.Log("الان نوبت پای راست نیست.");
-            return;
-        }
-
-        if (completedSteps >= targetStepCount)
-        {
-            Debug.Log("تعداد پله‌های هدف کامل شده است.");
-            return;
-        }
-
-        StartCoroutine(PlayRightFootPhase());
+        EnqueueStep(FootSide.Right);
     }
 
     public void CommandLeftFoot()
     {
-        if (phaseIsPlaying)
-        {
-            return;
-        }
-
-        if (expectedFoot != ExpectedFoot.Left)
-        {
-            Debug.Log("الان نوبت پای چپ نیست.");
-            return;
-        }
-
-        if (completedSteps >= targetStepCount)
-        {
-            Debug.Log("تعداد پله‌های هدف کامل شده است.");
-            return;
-        }
-
-        StartCoroutine(PlayLeftFootPhase());
+        EnqueueStep(FootSide.Left);
     }
 
-    private IEnumerator PlayRightFootPhase()
+    private void EnqueueStep(FootSide foot)
     {
-        if (animator == null)
+        if (!isReady)
         {
-            Debug.LogError("Animator مشخص نشده است.", this);
+            return;
+        }
+
+        if (nextStepIndex + commands.Count >= steps.Count)
+        {
+            Debug.Log("تمام پله‌ها طی شده‌اند.", this);
+            return;
+        }
+
+        if (commands.Count >= maximumQueuedSteps)
+        {
+            Debug.Log("صف حرکت‌ها پر است.", this);
+            return;
+        }
+
+        // فعلاً برای تست، راست و چپ هر دو به‌صورت مستقل قابل اجرا هستند.
+        commands.Enqueue(foot);
+    }
+
+    private IEnumerator PlayStep(FootSide leadingSide)
+    {
+        isMoving = true;
+
+        // قفل پله قبلی آزاد می‌شود تا انیمیشن بتواند حرکت کند.
+        lockStandingHeight = false;
+        standingStep = null;
+
+        if (nextStepIndex >= steps.Count)
+        {
+            isMoving = false;
             yield break;
         }
 
-        phaseIsPlaying = true;
+        BoxCollider targetStep = steps[nextStepIndex];
 
-        CalculateStepPositions();
+        string stateName =
+            leadingSide == FootSide.Right
+                ? rightStepStateName
+                : leftStepStateName;
+
+        HumanBodyBones leadingBoneName =
+            leadingSide == FootSide.Right
+                ? HumanBodyBones.RightFoot
+                : HumanBodyBones.LeftFoot;
+
+        HumanBodyBones trailingBoneName =
+            leadingSide == FootSide.Right
+                ? HumanBodyBones.LeftFoot
+                : HumanBodyBones.RightFoot;
+
+        AvatarTarget leadingAvatarTarget =
+            leadingSide == FootSide.Right
+                ? AvatarTarget.RightFoot
+                : AvatarTarget.LeftFoot;
+
+        AvatarTarget trailingAvatarTarget =
+            leadingSide == FootSide.Right
+                ? AvatarTarget.LeftFoot
+                : AvatarTarget.RightFoot;
+
+        Transform leadingFoot = animator.GetBoneTransform(leadingBoneName);
+        Transform trailingFoot = animator.GetBoneTransform(trailingBoneName);
+
+        if (leadingFoot == null || trailingFoot == null)
+        {
+            Debug.LogError(
+                "استخوان پای راست یا چپ پیدا نشد. Rig باید Humanoid باشد.",
+                this
+            );
+
+            animator.applyRootMotion = false;
+            isMoving = false;
+            yield break;
+        }
+
+        Vector3 leadingTargetPosition = GetFootTarget(targetStep, leadingFoot);
+        Vector3 trailingTargetPosition = GetFootTarget(targetStep, trailingFoot);
 
         animator.speed = 1f;
-        animator.ResetTrigger(stepTriggerHash);
-        animator.SetTrigger(stepTriggerHash);
 
-        float stateWaitTimer = 0f;
+        // Root Motion فقط هنگام اجرای قدم روشن است.
+        animator.applyRootMotion = true;
 
-        // صبر می‌کنیم تا Animator وارد StairStep شود.
+        animator.CrossFadeInFixedTime(
+            stateName,
+            transitionDuration,
+            0,
+            0f
+        );
+
+        float enterTimeout = 0f;
+
         while (
-            !animator
-                .GetCurrentAnimatorStateInfo(0)
-                .IsName(stairStateName)
+            animator.IsInTransition(0) ||
+            !animator.GetCurrentAnimatorStateInfo(0).IsName(stateName)
         )
         {
-            stateWaitTimer += Time.deltaTime;
+            enterTimeout += Time.deltaTime;
 
-            if (stateWaitTimer >= 2f)
+            if (enterTimeout > 2f)
             {
                 Debug.LogError(
-                    "Animator وارد State مربوط به پله نشد. " +
-                    "نام StairStep، Trigger و Transition را بررسی کن.",
+                    "Animator وارد State با نام " + stateName + " نشد.",
                     this
                 );
 
-                phaseIsPlaying = false;
+                animator.applyRootMotion = false;
+                isMoving = false;
                 yield break;
             }
 
             yield return null;
         }
 
-        // اجرای بخش اول انیمیشن؛ حرکت پای راست.
+        bool leadingMatchStarted = false;
+        bool trailingMatchStarted = false;
+
+        // در پروژه فعلی جهت بالا رفتن محور X است؛ محور عرضی Z قفل نمی‌شود.
+        MatchTargetWeightMask matchWeight =
+            new MatchTargetWeightMask(
+                new Vector3(1f, 1f, 0f),
+                0f
+            );
+
         while (true)
         {
             AnimatorStateInfo stateInfo =
                 animator.GetCurrentAnimatorStateInfo(0);
 
-            if (!stateInfo.IsName(stairStateName))
+            if (!stateInfo.IsName(stateName))
             {
-                Debug.LogError(
-                    "انیمیشن قبل از رسیدن پای راست متوقف شد.",
-                    this
-                );
-
-                phaseIsPlaying = false;
-                yield break;
+                break;
             }
 
-            float normalizedTime =
-                Mathf.Clamp01(stateInfo.normalizedTime);
+            float normalizedTime = stateInfo.normalizedTime;
 
-            float movementProgress = Mathf.InverseLerp(
-                0f,
-                rightFootPlantTime,
-                normalizedTime
-            );
+            if (!leadingMatchStarted &&
+                !animator.isMatchingTarget &&
+                normalizedTime < leadingFootMatchEnd)
+            {
+                float safeStart = Mathf.Max(
+                    leadingFootMatchStart,
+                    normalizedTime + 0.001f
+                );
 
-            characterRoot.position = Vector3.Lerp(
-                stepStartPosition,
-                stepMiddlePosition,
-                SmoothStep(movementProgress)
-            );
+                if (safeStart < leadingFootMatchEnd)
+                {
+                    animator.MatchTarget(
+                        leadingTargetPosition,
+                        leadingFoot.rotation,
+                        leadingAvatarTarget,
+                        matchWeight,
+                        safeStart,
+                        leadingFootMatchEnd
+                    );
 
-            if (normalizedTime >= rightFootPlantTime)
+                    leadingMatchStarted = true;
+                }
+            }
+
+            if (leadingMatchStarted &&
+                !trailingMatchStarted &&
+                !animator.isMatchingTarget &&
+                normalizedTime >= trailingFootMatchStart &&
+                normalizedTime < trailingFootMatchEnd)
+            {
+                float safeStart = Mathf.Max(
+                    trailingFootMatchStart,
+                    normalizedTime + 0.001f
+                );
+
+                if (safeStart < trailingFootMatchEnd)
+                {
+                    animator.MatchTarget(
+                        trailingTargetPosition,
+                        trailingFoot.rotation,
+                        trailingAvatarTarget,
+                        matchWeight,
+                        safeStart,
+                        trailingFootMatchEnd
+                    );
+
+                    trailingMatchStarted = true;
+                }
+            }
+
+            if (normalizedTime >= 0.99f)
             {
                 break;
             }
@@ -229,141 +368,325 @@ public class StairClimber : MonoBehaviour
             yield return null;
         }
 
-        characterRoot.position = stepMiddlePosition;
+        if (animator.isMatchingTarget)
+        {
+            animator.InterruptMatchTarget(true);
+        }
 
-        // انیمیشن در لحظه قرارگرفتن پای راست متوقف می‌شود.
-        animator.speed = 0f;
+        // قبل از Idle یک اصلاح محدود انجام می‌شود تا پرش بزرگ ایجاد نشود.
+        CorrectFinalFootPosition(targetStep, false);
 
-        expectedFoot = ExpectedFoot.Left;
-        phaseIsPlaying = false;
+        nextStepIndex++;
+
+        // از اینجا به بعد کاراکتر باید روی همین پله بایستد.
+        standingStep = targetStep;
+
+        // Idle نباید Root کاراکتر را پایین بکشد.
+        animator.applyRootMotion = false;
+        lockStandingHeight = true;
+
+        animator.CrossFadeInFixedTime(
+            idleStateName,
+            transitionDuration,
+            0,
+            0f
+        );
+
+        float idleTimeout = 0f;
+
+        while (
+            animator.IsInTransition(0) ||
+            !animator.GetCurrentAnimatorStateInfo(0).IsName(idleStateName)
+        )
+        {
+            idleTimeout += Time.deltaTime;
+
+            if (idleTimeout > 2f)
+            {
+                Debug.LogWarning(
+                    "Animator نتوانست به‌موقع وارد Idle شود.",
+                    this
+                );
+
+                break;
+            }
+
+            yield return null;
+        }
+
+        // بعد از کامل‌شدن Transition نیز یک اصلاح محدود انجام می‌شود.
+        CorrectFinalFootPosition(targetStep, false);
 
         Debug.Log(
-            "پای راست روی پله قرار گرفت. حالا نوبت پای چپ است."
+            "قدم شماره " +
+            nextStepIndex +
+            " با پای " +
+            (leadingSide == FootSide.Right ? "راست" : "چپ") +
+            " کامل شد.",
+            this
+        );
+
+        isMoving = false;
+    }
+
+    private Vector3 GetFootTarget(BoxCollider step, Transform foot)
+    {
+        Bounds bounds = step.bounds;
+        Vector3 target = bounds.center;
+
+        target.y = bounds.max.y + footBoneToSoleHeight;
+        target += climbWorldDirection * landingDepthOffset;
+
+        // موقعیت عرضی فعلی هر پا حفظ می‌شود.
+        float footSidePosition =
+            Vector3.Dot(foot.position, sideWorldDirection);
+
+        float targetSidePosition =
+            Vector3.Dot(target, sideWorldDirection);
+
+        target +=
+            sideWorldDirection *
+            (footSidePosition - targetSidePosition);
+
+        return target;
+    }
+
+    private void CorrectFinalFootPosition(
+        BoxCollider step,
+        bool exactCorrection
+    )
+    {
+        Transform leftFoot =
+            animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+
+        Transform rightFoot =
+            animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+        if (leftFoot == null || rightFoot == null)
+        {
+            return;
+        }
+
+        Vector3 currentFeetCenter =
+            (leftFoot.position + rightFoot.position) * 0.5f;
+
+        Bounds bounds = step.bounds;
+
+        Vector3 desiredFeetCenter =
+            bounds.center +
+            climbWorldDirection * landingDepthOffset;
+
+        desiredFeetCenter.y =
+            bounds.max.y + footBoneToSoleHeight;
+
+        Vector3 correction = desiredFeetCenter - currentFeetCenter;
+
+        // در عرض پله کاراکتر جابه‌جا نشود.
+        correction -=
+            sideWorldDirection *
+            Vector3.Dot(correction, sideWorldDirection);
+
+        if (!exactCorrection)
+        {
+            correction = Vector3.ClampMagnitude(
+                correction,
+                maximumFinalCorrection
+            );
+        }
+
+        characterRoot.position += correction;
+    }
+
+    private void LockFeetHeightToStep(BoxCollider step)
+    {
+        Transform leftFoot =
+            animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+
+        Transform rightFoot =
+            animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+        if (leftFoot == null || rightFoot == null)
+        {
+            return;
+        }
+
+        float currentFeetHeight =
+            (leftFoot.position.y + rightFoot.position.y) * 0.5f;
+
+        float desiredFeetHeight =
+            step.bounds.max.y + footBoneToSoleHeight;
+
+        float verticalCorrection =
+            desiredFeetHeight - currentFeetHeight;
+
+        if (Mathf.Abs(verticalCorrection) < 0.0001f)
+        {
+            return;
+        }
+
+        characterRoot.position +=
+            Vector3.up * verticalCorrection;
+    }
+
+    private void BuildStepList()
+    {
+        steps.Clear();
+
+        if (stairsRoot == null)
+        {
+            return;
+        }
+
+        climbWorldDirection =
+            stairsRoot.TransformDirection(climbLocalDirection);
+
+        climbWorldDirection.y = 0f;
+
+        if (climbWorldDirection.sqrMagnitude < 0.001f)
+        {
+            climbWorldDirection = Vector3.right;
+        }
+
+        climbWorldDirection.Normalize();
+
+        sideWorldDirection =
+            Vector3.Cross(
+                Vector3.up,
+                climbWorldDirection
+            ).normalized;
+
+        BoxCollider[] found =
+            stairsRoot.GetComponentsInChildren<BoxCollider>(true);
+
+        foreach (BoxCollider collider in found)
+        {
+            if (collider != null &&
+                collider.enabled &&
+                collider.gameObject.activeInHierarchy)
+            {
+                steps.Add(collider);
+            }
+        }
+
+        steps.Sort(
+            (first, second) =>
+            {
+                float firstPosition =
+                    Vector3.Dot(
+                        first.bounds.center,
+                        climbWorldDirection
+                    );
+
+                float secondPosition =
+                    Vector3.Dot(
+                        second.bounds.center,
+                        climbWorldDirection
+                    );
+
+                return firstPosition.CompareTo(secondPosition);
+            }
         );
     }
 
-    private IEnumerator PlayLeftFootPhase()
+    private int FindFirstStepInFront()
+    {
+        Transform leftFoot =
+            animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+
+        Transform rightFoot =
+            animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+        Vector3 currentPosition = characterRoot.position;
+
+        if (leftFoot != null && rightFoot != null)
+        {
+            currentPosition =
+                (leftFoot.position + rightFoot.position) * 0.5f;
+        }
+
+        float currentForwardPosition =
+            Vector3.Dot(
+                currentPosition,
+                climbWorldDirection
+            );
+
+        for (int i = 0; i < steps.Count; i++)
+        {
+            float stepForwardPosition =
+                Vector3.Dot(
+                    steps[i].bounds.center,
+                    climbWorldDirection
+                );
+
+            if (stepForwardPosition > currentForwardPosition + 0.05f)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private bool ValidateReferences()
     {
         if (animator == null)
         {
-            Debug.LogError("Animator مشخص نشده است.", this);
-            yield break;
+            Debug.LogError("Animator تعیین نشده است.", this);
+            return false;
         }
 
-        phaseIsPlaying = true;
-
-        // ادامه انیمیشن از محل توقف پای راست
-        animator.speed = 1f;
-
-        while (true)
+        if (!animator.isHuman)
         {
-            AnimatorStateInfo stateInfo =
-                animator.GetCurrentAnimatorStateInfo(0);
-
-            if (!stateInfo.IsName(stairStateName))
-            {
-                break;
-            }
-
-            float normalizedTime =
-                Mathf.Clamp01(stateInfo.normalizedTime);
-
-            float movementProgress = Mathf.InverseLerp(
-                rightFootPlantTime,
-                1f,
-                normalizedTime
+            Debug.LogError(
+                "Rig کاراکتر باید روی Humanoid تنظیم شده باشد.",
+                this
             );
+            return false;
+        }
 
-            characterRoot.position = Vector3.Lerp(
-                stepMiddlePosition,
-                stepEndPosition,
-                SmoothStep(movementProgress)
+        if (characterRoot == null)
+        {
+            Debug.LogError("Character Root تعیین نشده است.", this);
+            return false;
+        }
+
+        if (stairsRoot == null)
+        {
+            Debug.LogError("Stairs Root تعیین نشده است.", this);
+            return false;
+        }
+
+        if (steps.Count == 0)
+        {
+            Debug.LogError(
+                "هیچ BoxColliderای زیر stairs پیدا نشد.",
+                this
             );
-
-            if (normalizedTime >= 0.98f)
-            {
-                break;
-            }
-
-            yield return null;
+            return false;
         }
 
-        characterRoot.position = stepEndPosition;
-
-        animator.speed = 1f;
-
-        animator.CrossFade(
-            idleStateName,
-            animationTransitionTime
-        );
-
-        completedSteps++;
-
-        expectedFoot = ExpectedFoot.Right;
-        phaseIsPlaying = false;
-
-        Debug.Log(
-            "یک پله کامل شد. تعداد: " +
-            completedSteps +
-            "/" +
-            targetStepCount
-        );
-
-        if (completedSteps >= targetStepCount)
-        {
-            Debug.Log("هدف ۲۰ پله کامل شد.");
-        }
-    }
-
-    private void CalculateStepPositions()
-    {
-        Vector3 stairForward;
-
-        if (stairsDirectionReference != null)
-        {
-            stairForward = stairsDirectionReference.right;
-        }
-        else
-        {
-            stairForward = Vector3.right;
-        }
-
-        stairForward.y = 0f;
-
-        if (stairForward.sqrMagnitude < 0.001f)
-        {
-            stairForward = Vector3.right;
-        }
-
-        stairForward.Normalize();
-
-        Vector3 fullStepMovement =
-            stairForward * stepDepth +
-            Vector3.up * stepHeight;
-
-        stepStartPosition = characterRoot.position;
-
-        stepMiddlePosition =
-            stepStartPosition +
-            fullStepMovement * 0.5f;
-
-        stepEndPosition =
-            stepStartPosition +
-            fullStepMovement;
-    }
-
-    private float SmoothStep(float value)
-    {
-        value = Mathf.Clamp01(value);
-
-        return value * value * (3f - 2f * value);
+        return true;
     }
 
     private void OnDisable()
     {
+        StopAllCoroutines();
+        commands.Clear();
+
+        standingStep = null;
+        lockStandingHeight = false;
+        isMoving = false;
+        isReady = false;
+
         if (animator != null)
         {
             animator.speed = 1f;
+            animator.applyRootMotion = false;
+
+            if (animator.isMatchingTarget)
+            {
+                animator.InterruptMatchTarget(false);
+            }
         }
     }
 }

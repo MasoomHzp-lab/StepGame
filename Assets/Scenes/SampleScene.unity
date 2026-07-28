@@ -756,6 +756,7 @@ GameObject:
   - component: {fileID: 330585545}
   - component: {fileID: 330585544}
   - component: {fileID: 330585547}
+  - component: {fileID: 330585548}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -830,13 +831,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -947.4, y: 607.2, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
 --- !u!114 &330585547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -881,6 +882,22 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!114 &330585548
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f9b444a9ef48c541ade730478196ecd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SideFollowCamera
+  target: {fileID: 164837550687538366}
+  offset: {x: 0, y: 1.5, z: -5}
+  lookOffset: {x: 0, y: 0.9, z: 0}
+  followSpeed: 6
 --- !u!1 &364615103
 GameObject:
   m_ObjectHideFlags: 0
@@ -3287,8 +3304,8 @@ Transform:
   m_GameObject: {fileID: 649167391545103876}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -929.67, y: 613.12, z: -28.12}
-  m_LocalScale: {x: 2.5, y: 2.5, z: 2.5}
+  m_LocalPosition: {x: -929.04, y: 613.059, z: -28.12}
+  m_LocalScale: {x: 1.5, y: 1.5, z: 1.5}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2088320712903474829}
@@ -4471,6 +4488,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c111799b570012458a0babaf5db37a3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::StairClimber
+  animator: {fileID: 649167391545103877}
+  characterRoot: {fileID: 164837550687538366}
+  stairsRoot: {fileID: 680838420}
+  idleStateName: Idle
+  rightStepStateName: RightStep
+  leftStepStateName: LeftStep
+  climbLocalDirection: {x: 1, y: 0, z: 0}
+  footBoneToSoleHeight: 0.18
+  landingDepthOffset: 0.6
+  leadingFootMatchStart: 0.05
+  leadingFootMatchEnd: 0.48
+  trailingFootMatchStart: 0.52
+  trailingFootMatchEnd: 0.94
+  transitionDuration: 0.08
+  maximumFinalCorrection: 0.35
+  maximumQueuedSteps: 1
 --- !u!4 &656828116069851130
 Transform:
   m_ObjectHideFlags: 0
