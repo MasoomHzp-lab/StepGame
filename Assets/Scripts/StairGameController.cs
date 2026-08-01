@@ -12,47 +12,134 @@ public class StairGameController : MonoBehaviour
     }
 
     [Header("References")]
-    [SerializeField] private Transform stairsRoot;
-    [SerializeField] private Animator animator;
+    [SerializeField]
+    private Transform stairsRoot;
+
+    [SerializeField]
+    private Animator animator;
+
+    [SerializeField]
+    private CharacterStepMover characterStepMover;
 
     [Header("Animator States")]
-    [SerializeField] private string idleStateName = "Idle";
-    [SerializeField] private string rightStepStateName = "RightStep";
-    [SerializeField] private string leftStepStateName = "LeftStep";
+    [SerializeField]
+    private string idleStateName = "Idle";
+
+    [SerializeField]
+    private string rightLeadStateName = "RightLeadStep";
+
+    [SerializeField]
+    private string leftLeadStateName = "LeftLeadStep";
+
+    [SerializeField]
+    private string rightJoinStateName = "RightJoinStep";
+
+    [SerializeField]
+    private string leftJoinStateName = "LeftJoinStep";
 
     [Header("Animation Settings")]
     [SerializeField, Min(0f)]
-    private float transitionDuration = 0.08f;
+    private float transitionDuration = 0.02f;
 
     [SerializeField, Range(0.5f, 1f)]
-    private float animationCompletionTime = 0.95f;
+    private float animationCompletionTime = 0.98f;
 
     [SerializeField, Min(1f)]
     private float animationTimeout = 5f;
 
+    [Tooltip("Delay between the lead movement and the automatic join movement.")]
+    [SerializeField, Min(0f)]
+    private float automaticJoinDelay = 0.08f;
+
     [Header("Stair Direction")]
-    [SerializeField] private Vector3 climbLocalDirection = Vector3.right;
+    [SerializeField]
+    private Vector3 climbLocalDirection = Vector3.right;
 
     [Header("Session Settings")]
-    [SerializeField] private FootSide startingFoot = FootSide.Right;
-    [SerializeField] private bool enableKeyboardTest = true;
+    [Tooltip("Only controls which foot is initially highlighted. It does not lock the input.")]
+    [SerializeField]
+    private FootSide startingFoot = FootSide.Right;
+
+    [SerializeField]
+    private bool enableKeyboardTest = true;
 
     [Header("Runtime State - Read Only")]
-    [SerializeField] private FootSide expectedFoot;
-    [SerializeField] private int nextTargetStepIndex;
-    [SerializeField] private int rightFootStepIndex = -1;
-    [SerializeField] private int leftFootStepIndex = -1;
-    [SerializeField] private bool sessionStarted;
-    [SerializeField] private bool isAnimating;
+    [SerializeField]
+    private FootSide expectedFoot;
+
+    [SerializeField]
+    private int nextTargetStepIndex;
+
+    [SerializeField]
+    private int rightFootStepIndex = -1;
+
+    [SerializeField]
+    private int leftFootStepIndex = -1;
+
+    [SerializeField]
+    private bool sessionStarted;
+
+    [SerializeField]
+    private bool isAnimating;
+
+    [SerializeField]
+    private bool automaticJoinInProgress;
 
     private readonly List<BoxCollider> steps =
         new List<BoxCollider>();
+
+    private bool lastMovementSucceeded;
+
+    public FootSide ExpectedFoot
+    {
+        get
+        {
+            return expectedFoot;
+        }
+    }
+
+    public bool SessionStarted
+    {
+        get
+        {
+            return sessionStarted;
+        }
+    }
+
+    public bool IsAnimating
+    {
+        get
+        {
+            return isAnimating;
+        }
+    }
+
+    public Vector3 ClimbWorldDirection
+    {
+        get
+        {
+            if (stairsRoot == null ||
+                climbLocalDirection.sqrMagnitude < 0.001f)
+            {
+                return transform.forward;
+            }
+
+            return stairsRoot.TransformDirection(
+                climbLocalDirection.normalized
+            ).normalized;
+        }
+    }
 
     private void Awake()
     {
         if (animator == null)
         {
             animator = GetComponent<Animator>();
+        }
+
+        if (animator == null)
+        {
+            animator = GetComponentInParent<Animator>();
         }
 
         if (animator == null)
@@ -66,7 +153,29 @@ public class StairGameController : MonoBehaviour
             return;
         }
 
-        // Character movement will be controlled manually later.
+        if (characterStepMover == null)
+        {
+            characterStepMover =
+                GetComponent<CharacterStepMover>();
+        }
+
+        if (characterStepMover == null)
+        {
+            characterStepMover =
+                GetComponentInParent<CharacterStepMover>();
+        }
+
+        if (characterStepMover == null)
+        {
+            Debug.LogError(
+                "Character Step Mover has not been assigned or found.",
+                this
+            );
+
+            enabled = false;
+            return;
+        }
+
         animator.applyRootMotion = false;
 
         if (!BuildStepList())
@@ -80,7 +189,8 @@ public class StairGameController : MonoBehaviour
 
     private void Update()
     {
-        if (!enableKeyboardTest || !sessionStarted)
+        if (!enableKeyboardTest ||
+            !sessionStarted)
         {
             return;
         }
@@ -113,7 +223,13 @@ public class StairGameController : MonoBehaviour
         TryStartStep(FootSide.Left);
     }
 
-    public bool TryStartStep(FootSide requestedFoot)
+    /// <summary>
+    /// Starts one complete stair movement.
+    /// The requested foot leads and the opposite foot joins automatically.
+    /// </summary>
+    public bool TryStartStep(
+        FootSide requestedFoot
+    )
     {
         if (!sessionStarted)
         {
@@ -128,54 +244,230 @@ public class StairGameController : MonoBehaviour
         if (isAnimating)
         {
             Debug.LogWarning(
-                "Input ignored: a step animation is already playing.",
+                "Input ignored: a complete stair movement is already playing.",
                 this
             );
 
             return false;
         }
 
-        if (nextTargetStepIndex >= steps.Count)
+        if (nextTargetStepIndex < 0 ||
+            nextTargetStepIndex >= steps.Count)
         {
             CompleteSession();
             return false;
         }
 
-        if (requestedFoot != expectedFoot)
-        {
-            Debug.LogWarning(
-                $"Step rejected: it is currently the " +
-                $"{GetFootName(expectedFoot)} foot's turn.",
-                this
-            );
+        BoxCollider targetStep =
+            steps[nextTargetStepIndex];
 
-            return false;
-        }
+        /*
+         * Both feet are valid.
+         * The pressed key determines which foot leads.
+         */
+        expectedFoot = requestedFoot;
 
         StartCoroutine(
-            PlayStepAnimation(requestedFoot)
+            PlayCompleteStairSequence(
+                requestedFoot,
+                targetStep,
+                nextTargetStepIndex
+            )
         );
 
         return true;
     }
 
-    private IEnumerator PlayStepAnimation(FootSide requestedFoot)
+    /// <summary>
+    /// Plays the lead movement and then automatically
+    /// plays the opposite foot's join movement.
+    /// </summary>
+    private IEnumerator PlayCompleteStairSequence(
+        FootSide leadFoot,
+        BoxCollider targetStep,
+        int targetStepIndex
+    )
     {
         isAnimating = true;
+        automaticJoinInProgress = false;
 
-        string targetStateName =
-            requestedFoot == FootSide.Right
-                ? rightStepStateName
-                : leftStepStateName;
-
-        int targetShortNameHash =
-            Animator.StringToHash(targetStateName);
-
-        animator.speed = 1f;
-        animator.applyRootMotion = false;
+        FootSide joinFoot =
+            GetOppositeFoot(leadFoot);
 
         Debug.Log(
-            $"Starting {GetFootName(requestedFoot)} foot animation.",
+            $"Starting complete stair movement | " +
+            $"Lead foot: {GetFootName(leadFoot)} | " +
+            $"Automatic join foot: {GetFootName(joinFoot)} | " +
+            $"Target: {targetStep.name}",
+            this
+        );
+
+        /*
+         * First movement:
+         * The selected foot moves onto the next stair.
+         */
+        expectedFoot = leadFoot;
+
+        yield return PlaySingleMovement(
+            leadFoot,
+            targetStep,
+            targetStepIndex,
+            false
+        );
+
+        if (!lastMovementSucceeded)
+        {
+            Debug.LogError(
+                "The lead movement failed. " +
+                "The automatic join movement was cancelled.",
+                this
+            );
+
+            automaticJoinInProgress = false;
+            isAnimating = false;
+
+            yield break;
+        }
+
+        /*
+         * Small natural pause before the second foot joins.
+         */
+        if (automaticJoinDelay > 0f)
+        {
+            yield return new WaitForSeconds(
+                automaticJoinDelay
+            );
+        }
+
+        /*
+         * Second movement:
+         * The opposite foot automatically joins the lead foot.
+         * The player does not press another key.
+         */
+        automaticJoinInProgress = true;
+        expectedFoot = joinFoot;
+
+        Debug.Log(
+            $"Lead movement finished. " +
+            $"Starting automatic {GetFootName(joinFoot)} join movement.",
+            this
+        );
+
+        yield return PlaySingleMovement(
+            joinFoot,
+            targetStep,
+            targetStepIndex,
+            true
+        );
+
+        automaticJoinInProgress = false;
+
+        if (!lastMovementSucceeded)
+        {
+            Debug.LogError(
+                "The automatic join movement failed.",
+                this
+            );
+
+            isAnimating = false;
+            yield break;
+        }
+
+        /*
+         * Both feet have now completed the same stair.
+         * Only now do we move the target to the next stair.
+         */
+        rightFootStepIndex = targetStepIndex;
+        leftFootStepIndex = targetStepIndex;
+
+        nextTargetStepIndex++;
+
+        /*
+         * This is only the suggested/highlighted foot.
+         * The next R or L input is still accepted.
+         */
+        expectedFoot =
+            GetOppositeFoot(leadFoot);
+
+        isAnimating = false;
+
+        Debug.Log(
+            $"Stair completed | " +
+            $"Target: {targetStep.name} | " +
+            $"Both feet are now on step index {targetStepIndex}.",
+            this
+        );
+
+        if (nextTargetStepIndex >= steps.Count)
+        {
+            CompleteSession();
+            yield break;
+        }
+
+        Debug.Log(
+            $"Ready for the next stair: " +
+            $"{steps[nextTargetStepIndex].name}. " +
+            "Press R or L to select the next lead foot.",
+            this
+        );
+    }
+
+    /// <summary>
+    /// Plays one section of the stair movement:
+    /// either LeadStep or JoinStep.
+    /// </summary>
+    private IEnumerator PlaySingleMovement(
+        FootSide movingFoot,
+        BoxCollider targetStep,
+        int targetStepIndex,
+        bool isJoinMovement
+    )
+    {
+        lastMovementSucceeded = false;
+
+        string targetStateName =
+            GetAnimationStateName(
+                movingFoot,
+                isJoinMovement
+            );
+
+        int targetShortNameHash =
+            Animator.StringToHash(
+                targetStateName
+            );
+
+        string movementType =
+            isJoinMovement
+                ? "join"
+                : "lead";
+
+        bool movePrepared =
+            characterStepMover.PrepareMove(
+                movingFoot,
+                targetStep,
+                targetStateName,
+                ClimbWorldDirection
+            );
+
+        if (!movePrepared)
+        {
+            Debug.LogError(
+                $"Could not prepare the " +
+                $"{GetFootName(movingFoot)} " +
+                $"{movementType} movement.",
+                this
+            );
+
+            yield break;
+        }
+
+        animator.applyRootMotion = false;
+        animator.speed = 1f;
+
+        Debug.Log(
+            $"Playing {movementType} animation | " +
+            $"Foot: {GetFootName(movingFoot)} | " +
+            $"State: {targetStateName}",
             this
         );
 
@@ -187,23 +479,38 @@ public class StairGameController : MonoBehaviour
         );
 
         float elapsedTime = 0f;
+
         bool animationStarted = false;
         bool animationCompleted = false;
 
         while (elapsedTime < animationTimeout)
         {
+            yield return null;
+
             AnimatorStateInfo stateInfo =
                 animator.GetCurrentAnimatorStateInfo(0);
 
             bool isTargetState =
-                stateInfo.shortNameHash == targetShortNameHash;
+                stateInfo.shortNameHash ==
+                targetShortNameHash;
 
             if (isTargetState)
             {
                 animationStarted = true;
 
+                float movementProgress =
+                    Mathf.Clamp01(
+                        stateInfo.normalizedTime /
+                        animationCompletionTime
+                    );
+
+                characterStepMover.ApplyProgress(
+                    movementProgress
+                );
+
                 if (!animator.IsInTransition(0) &&
-                    stateInfo.normalizedTime >= animationCompletionTime)
+                    stateInfo.normalizedTime >=
+                    animationCompletionTime)
                 {
                     animationCompleted = true;
                     break;
@@ -211,88 +518,114 @@ public class StairGameController : MonoBehaviour
             }
 
             elapsedTime += Time.deltaTime;
-            yield return null;
         }
 
         if (!animationStarted)
         {
+            characterStepMover.CancelMove();
+
             Debug.LogError(
-                $"Animator state '{targetStateName}' was not found or did not start.",
+                $"Animator state '{targetStateName}' " +
+                "was not found or did not start.",
                 this
             );
 
-            animator.CrossFadeInFixedTime(
-                idleStateName,
-                transitionDuration
-            );
-
-            isAnimating = false;
             yield break;
         }
 
         if (!animationCompleted)
         {
             Debug.LogWarning(
-                $"Animation '{targetStateName}' reached the timeout limit.",
+                $"Animation '{targetStateName}' " +
+                "reached the timeout limit. " +
+                "The final position will still be applied.",
                 this
             );
         }
 
-        RegisterSuccessfulStep(requestedFoot);
+        characterStepMover.CompleteMove();
 
-        animator.CrossFadeInFixedTime(
-            idleStateName,
-            transitionDuration
-        );
-
-        isAnimating = false;
-    }
-
-    private void RegisterSuccessfulStep(FootSide requestedFoot)
-    {
-        if (nextTargetStepIndex >= steps.Count)
+        if (movingFoot == FootSide.Right)
         {
-            CompleteSession();
-            return;
-        }
-
-        BoxCollider targetStep =
-            steps[nextTargetStepIndex];
-
-        if (requestedFoot == FootSide.Right)
-        {
-            rightFootStepIndex = nextTargetStepIndex;
+            rightFootStepIndex =
+                targetStepIndex;
         }
         else
         {
-            leftFootStepIndex = nextTargetStepIndex;
+            leftFootStepIndex =
+                targetStepIndex;
         }
 
-        Debug.Log(
-            $"Successful step: {GetFootName(requestedFoot)} foot" +
-            $" on {targetStep.name}" +
-            $" | Step number: {nextTargetStepIndex + 1}",
-            this
+        /*
+         * Freeze the final pose.
+         * The next animation starts from this exact position.
+         */
+        animator.Play(
+            targetStateName,
+            0,
+            0.999f
         );
 
-        nextTargetStepIndex++;
+        animator.Update(0f);
+        animator.speed = 0f;
 
-        expectedFoot =
-            requestedFoot == FootSide.Right
-                ? FootSide.Left
-                : FootSide.Right;
+        lastMovementSucceeded = true;
 
-        if (nextTargetStepIndex >= steps.Count)
+        Debug.Log(
+            $"{movementType} movement completed | " +
+            $"Foot: {GetFootName(movingFoot)} | " +
+            $"Step index: {targetStepIndex}",
+            this
+        );
+    }
+
+    private string GetAnimationStateName(
+        FootSide foot,
+        bool isJoinMovement
+    )
+    {
+        if (!isJoinMovement)
         {
-            CompleteSession();
-            return;
+            return foot == FootSide.Right
+                ? rightLeadStateName
+                : leftLeadStateName;
         }
 
-        Debug.Log(
-            $"Next movement: {GetFootName(expectedFoot)} foot" +
-            $" to step number {nextTargetStepIndex + 1}.",
-            this
-        );
+        return foot == FootSide.Right
+            ? rightJoinStateName
+            : leftJoinStateName;
+    }
+
+    private FootSide GetOppositeFoot(
+        FootSide foot
+    )
+    {
+        return foot == FootSide.Right
+            ? FootSide.Left
+            : FootSide.Right;
+    }
+
+    public bool TryGetCurrentTargetStep(
+        out BoxCollider targetStep
+    )
+    {
+        targetStep = null;
+
+        if (!sessionStarted)
+        {
+            return false;
+        }
+
+        if (nextTargetStepIndex < 0 ||
+            nextTargetStepIndex >= steps.Count)
+        {
+            return false;
+        }
+
+        targetStep =
+            steps[nextTargetStepIndex];
+
+        return targetStep != null;
     }
 
     [ContextMenu("Reset Session")]
@@ -300,13 +633,23 @@ public class StairGameController : MonoBehaviour
     {
         StopAllCoroutines();
 
+        if (characterStepMover != null)
+        {
+            characterStepMover
+                .ResetCharacterPosition();
+        }
+
         nextTargetStepIndex = 0;
+
         rightFootStepIndex = -1;
         leftFootStepIndex = -1;
 
         expectedFoot = startingFoot;
+
         sessionStarted = true;
         isAnimating = false;
+        automaticJoinInProgress = false;
+        lastMovementSucceeded = false;
 
         if (animator != null)
         {
@@ -323,8 +666,10 @@ public class StairGameController : MonoBehaviour
         }
 
         Debug.Log(
-            $"Session started. Total steps: {steps.Count}" +
-            $" | Starting foot: {GetFootName(expectedFoot)}.",
+            $"Session started | " +
+            $"Total stairs: {steps.Count} | " +
+            $"Initial suggested foot: {GetFootName(expectedFoot)} | " +
+            "Both R and L inputs are accepted.",
             this
         );
     }
@@ -333,11 +678,21 @@ public class StairGameController : MonoBehaviour
     {
         StopAllCoroutines();
 
+        if (characterStepMover != null)
+        {
+            characterStepMover.CancelMove();
+        }
+
         sessionStarted = false;
         isAnimating = false;
+        automaticJoinInProgress = false;
+        lastMovementSucceeded = false;
 
         if (animator != null)
         {
+            animator.speed = 1f;
+            animator.applyRootMotion = false;
+
             animator.CrossFadeInFixedTime(
                 idleStateName,
                 transitionDuration
@@ -353,9 +708,12 @@ public class StairGameController : MonoBehaviour
     private void CompleteSession()
     {
         sessionStarted = false;
+        isAnimating = false;
+        automaticJoinInProgress = false;
 
         Debug.Log(
-            $"Path completed. Successful steps: {nextTargetStepIndex}.",
+            $"Path completed | " +
+            $"Completed stairs: {nextTargetStepIndex}.",
             this
         );
     }
@@ -385,11 +743,13 @@ public class StairGameController : MonoBehaviour
         }
 
         BoxCollider[] foundSteps =
-            stairsRoot.GetComponentsInChildren<BoxCollider>(true);
+            stairsRoot.GetComponentsInChildren
+            <BoxCollider>(true);
 
         foreach (BoxCollider step in foundSteps)
         {
-            if (step.transform == stairsRoot)
+            if (step == null ||
+                step.transform == stairsRoot)
             {
                 continue;
             }
@@ -405,17 +765,21 @@ public class StairGameController : MonoBehaviour
         steps.Sort(
             (first, second) =>
             {
-                float firstDistance = Vector3.Dot(
-                    first.bounds.center,
-                    climbWorldDirection
-                );
+                float firstDistance =
+                    Vector3.Dot(
+                        first.bounds.center,
+                        climbWorldDirection
+                    );
 
-                float secondDistance = Vector3.Dot(
-                    second.bounds.center,
-                    climbWorldDirection
-                );
+                float secondDistance =
+                    Vector3.Dot(
+                        second.bounds.center,
+                        climbWorldDirection
+                    );
 
-                return firstDistance.CompareTo(secondDistance);
+                return firstDistance.CompareTo(
+                    secondDistance
+                );
             }
         );
 
@@ -437,7 +801,9 @@ public class StairGameController : MonoBehaviour
         return true;
     }
 
-    private string GetFootName(FootSide foot)
+    private string GetFootName(
+        FootSide foot
+    )
     {
         return foot == FootSide.Right
             ? "right"

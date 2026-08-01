@@ -1470,6 +1470,169 @@ MonoBehaviour:
   horizontalStep: 0.6
   localDirection: {x: 1, y: 0, z: 0}
   colliderThickness: 0.08
+--- !u!1 &792354727
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 792354728}
+  - component: {fileID: 792354730}
+  - component: {fileID: 792354729}
+  m_Layer: 0
+  m_Name: LeftLegGuide
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &792354728
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 792354727}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 164837550687538366}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &792354729
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 792354727}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8f6d24676c7c423439dda4474816ba2a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LegGuideVisualizer
+  animator: {fileID: 649167391545103877}
+  targetCamera: {fileID: 330585545}
+  legSide: 1
+  showGuide: 1
+  lineWidth: 0.025
+  markerSize: 0.06
+  cameraOffset: 0.12
+  guideColor: {r: 1, g: 0.2705882, b: 0, a: 1}
+--- !u!120 &792354730
+LineRenderer:
+  serializedVersion: 3
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 792354727}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 0
+  m_LightProbeUsage: 0
+  m_ReflectionProbeUsage: 0
+  m_RayTracingMode: 0
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 0}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_Positions:
+  - {x: 0, y: 0, z: 0}
+  - {x: 0, y: 0, z: 1}
+  m_Parameters:
+    serializedVersion: 3
+    widthMultiplier: 1
+    widthCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    colorGradient:
+      serializedVersion: 2
+      key0: {r: 1, g: 1, b: 1, a: 1}
+      key1: {r: 1, g: 1, b: 1, a: 1}
+      key2: {r: 0, g: 0, b: 0, a: 0}
+      key3: {r: 0, g: 0, b: 0, a: 0}
+      key4: {r: 0, g: 0, b: 0, a: 0}
+      key5: {r: 0, g: 0, b: 0, a: 0}
+      key6: {r: 0, g: 0, b: 0, a: 0}
+      key7: {r: 0, g: 0, b: 0, a: 0}
+      ctime0: 0
+      ctime1: 65535
+      ctime2: 0
+      ctime3: 0
+      ctime4: 0
+      ctime5: 0
+      ctime6: 0
+      ctime7: 0
+      atime0: 0
+      atime1: 65535
+      atime2: 0
+      atime3: 0
+      atime4: 0
+      atime5: 0
+      atime6: 0
+      atime7: 0
+      m_Mode: 0
+      m_ColorSpace: -1
+      m_NumColorKeys: 2
+      m_NumAlphaKeys: 2
+    numCornerVertices: 0
+    numCapVertices: 0
+    alignment: 0
+    textureMode: 0
+    textureScale: {x: 1, y: 1}
+    shadowBias: 0.5
+    generateLightingData: 0
+  m_UseWorldSpace: 1
+  m_Loop: 0
+  m_ApplyActiveColorSpace: 1
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -2657,10 +2820,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LegGuideVisualizer
   animator: {fileID: 649167391545103877}
+  targetCamera: {fileID: 330585545}
   legSide: 0
   showGuide: 1
   lineWidth: 0.025
   markerSize: 0.06
+  cameraOffset: 0.12
   guideColor: {r: 0, g: 1, b: 1, a: 1}
 --- !u!120 &1449879134
 LineRenderer:
@@ -3022,6 +3187,64 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1775280186}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &1785013626
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1785013627}
+  - component: {fileID: 1785013628}
+  m_Layer: 0
+  m_Name: StepTargetGuide
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1785013627
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1785013626}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 164837550687538366}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1785013628
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1785013626}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fb1c5ceadd0234d4ab9308c25db3b328, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StepTargetVisualizer
+  gameController: {fileID: 649167391545103879}
+  animator: {fileID: 649167391545103877}
+  targetCamera: {fileID: 330585545}
+  stepClearance: 0.1
+  landingDepthOffset: 0
+  showGuide: 1
+  lineWidth: 0.05
+  markerSize: 0.11
+  cameraOffset: 0.16
+  liftColor: {r: 0, g: 1, b: 0, a: 1}
+  forwardColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  targetColor: {r: 1, g: 1, b: 1, a: 1}
+  requiredLiftDistance: 0
+  requiredForwardDistance: 0
 --- !u!1 &1949567185
 GameObject:
   m_ObjectHideFlags: 0
@@ -3592,6 +3815,8 @@ Transform:
   - {fileID: 185276600544144727}
   - {fileID: 7728012595869403475}
   - {fileID: 1449879132}
+  - {fileID: 792354728}
+  - {fileID: 1785013627}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
 --- !u!4 &167943358539267260
@@ -4720,8 +4945,8 @@ GameObject:
   m_Component:
   - component: {fileID: 164837550687538366}
   - component: {fileID: 649167391545103877}
-  - component: {fileID: 649167391545103878}
   - component: {fileID: 649167391545103879}
+  - component: {fileID: 649167391545103880}
   m_Layer: 0
   m_Name: Man fbx
   m_TagString: Untagged
@@ -4751,34 +4976,6 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
---- !u!114 &649167391545103878
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 649167391545103876}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1c111799b570012458a0babaf5db37a3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::StairClimber
-  animator: {fileID: 649167391545103877}
-  characterRoot: {fileID: 164837550687538366}
-  stairsRoot: {fileID: 680838420}
-  idleStateName: Idle
-  rightStepStateName: RightStep
-  leftStepStateName: LeftStep
-  climbLocalDirection: {x: 1, y: 0, z: 0}
-  footBoneToSoleHeight: 0.18
-  landingDepthOffset: 0.6
-  leadingFootMatchStart: 0.05
-  leadingFootMatchEnd: 0.48
-  trailingFootMatchStart: 0.52
-  trailingFootMatchEnd: 0.94
-  transitionDuration: 0.08
-  maximumFinalCorrection: 0.35
-  maximumQueuedSteps: 1
 --- !u!114 &649167391545103879
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4793,6 +4990,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StairGameController
   stairsRoot: {fileID: 680838420}
   animator: {fileID: 649167391545103877}
+  characterStepMover: {fileID: 0}
   idleStateName: Idle
   rightStepStateName: RightStep
   leftStepStateName: LeftStep
@@ -4808,6 +5006,30 @@ MonoBehaviour:
   leftFootStepIndex: -1
   sessionStarted: 0
   isAnimating: 0
+--- !u!114 &649167391545103880
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 649167391545103876}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e3c3d11d13c5374abde668bd8178346, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CharacterStepMover
+  animator: {fileID: 649167391545103877}
+  characterRoot: {fileID: 164837550687538366}
+  landingDepthOffset: 0
+  defaultAnkleHeight: 0.08
+  ankleRaycastHeight: 0.4
+  ankleRaycastDistance: 2
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  movePrepared: 0
+  startRootPosition: {x: 0, y: 0, z: 0}
+  targetRootPosition: {x: 0, y: 0, z: 0}
 --- !u!4 &656828116069851130
 Transform:
   m_ObjectHideFlags: 0

@@ -13,14 +13,14 @@ AnimatorState:
   m_Transitions: []
   m_StateMachineBehaviours: []
   m_Position: {x: 50, y: 50, z: 0}
-  m_IKOnFeet: 0
+  m_IKOnFeet: 1
   m_WriteDefaultValues: 1
   m_Mirror: 1
   m_SpeedParameterActive: 0
   m_MirrorParameterActive: 0
   m_CycleOffsetParameterActive: 0
   m_TimeParameterActive: 0
-  m_Motion: {fileID: -5853254465960241830, guid: 479bec05487fe7d4fbb8ddb6bb0d7264, type: 3}
+  m_Motion: {fileID: -4469183485442372851, guid: d359d254ef9017c40bf073adb031d634, type: 3}
   m_Tag: 
   m_SpeedParameter: 
   m_MirrorParameter: MirrorStep
@@ -86,7 +86,7 @@ AnimatorController:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: PlayerAnimator
+  m_Name: PlayerAnimator_Backup
   serializedVersion: 5
   m_AnimatorParameters:
   - m_Name: MirrorStep
@@ -128,7 +128,7 @@ AnimatorState:
   m_MirrorParameterActive: 0
   m_CycleOffsetParameterActive: 0
   m_TimeParameterActive: 0
-  m_Motion: {fileID: -5853254465960241830, guid: 479bec05487fe7d4fbb8ddb6bb0d7264, type: 3}
+  m_Motion: {fileID: -4469183485442372851, guid: d359d254ef9017c40bf073adb031d634, type: 3}
   m_Tag: 
   m_SpeedParameter: 
   m_MirrorParameter: MirrorStep
