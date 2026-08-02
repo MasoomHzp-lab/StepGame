@@ -446,7 +446,8 @@ public class StairGameController : MonoBehaviour
                 movingFoot,
                 targetStep,
                 targetStateName,
-                ClimbWorldDirection
+                ClimbWorldDirection,
+                isJoinMovement
             );
 
         if (!movePrepared)

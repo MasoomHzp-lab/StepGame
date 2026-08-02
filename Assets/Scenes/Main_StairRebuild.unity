@@ -4990,13 +4990,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StairGameController
   stairsRoot: {fileID: 680838420}
   animator: {fileID: 649167391545103877}
-  characterStepMover: {fileID: 0}
+  characterStepMover: {fileID: 649167391545103880}
   idleStateName: Idle
-  rightStepStateName: RightStep
-  leftStepStateName: LeftStep
-  transitionDuration: 0.08
-  animationCompletionTime: 0.95
+  rightLeadStateName: RightLeadStep
+  leftLeadStateName: LeftLeadStep
+  rightJoinStateName: RightJoinStep
+  leftJoinStateName: LeftJoinStep
+  transitionDuration: 0.02
+  animationCompletionTime: 0.98
   animationTimeout: 5
+  automaticJoinDelay: 0.08
   climbLocalDirection: {x: 1, y: 0, z: 0}
   startingFoot: 0
   enableKeyboardTest: 1
@@ -5006,6 +5009,7 @@ MonoBehaviour:
   leftFootStepIndex: -1
   sessionStarted: 0
   isAnimating: 0
+  automaticJoinInProgress: 0
 --- !u!114 &649167391545103880
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5030,6 +5034,8 @@ MonoBehaviour:
   movePrepared: 0
   startRootPosition: {x: 0, y: 0, z: 0}
   targetRootPosition: {x: 0, y: 0, z: 0}
+  initialRootPosition: {x: 0, y: 0, z: 0}
+  initialRootRotation: {x: 0, y: 0, z: 0, w: 0}
 --- !u!4 &656828116069851130
 Transform:
   m_ObjectHideFlags: 0

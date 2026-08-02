@@ -6,26 +6,45 @@ public class CharacterStepMover : MonoBehaviour
     [SerializeField]
     private Animator animator;
 
-    [Tooltip("The Transform that physically moves between steps.")]
+    [Tooltip("The Transform that physically moves between stairs.")]
     [SerializeField]
     private Transform characterRoot;
 
-    [Header("Landing Settings")]
-    [Tooltip("Moves the landing point deeper onto the target step.")]
+    [Header("Stable Landing Coordinates")]
+    [Tooltip("Moves the character slightly deeper onto each stair.")]
     [SerializeField]
     private float landingDepthOffset = 0f;
 
-    [Tooltip("Fallback ankle height above the surface.")]
+    [Tooltip(
+        "Extra vertical distance above the stair surface. " +
+        "Keep this at the value that visually places the shoes correctly."
+    )]
     [SerializeField, Min(0f)]
-    private float defaultAnkleHeight = 0.08f;
+    private float extraLandingClearance = 0.4f;
 
-    [Tooltip("Raycast start height above the ankle.")]
+    [Tooltip("Fine adjustment across the width of the stairs.")]
+    [SerializeField]
+    private float sideOffsetCorrection = 0f;
+
+    [Tooltip(
+        "Optional override for the first forward movement. " +
+        "Zero automatically uses the target stair depth."
+    )]
+    [SerializeField, Min(0f)]
+    private float firstStepAdvanceOverride = 0f;
+
+    [Tooltip("Prevents the character root from moving downward while climbing.")]
+    [SerializeField]
+    private bool preventDownwardMovement = true;
+
+    [Header("Initial Surface Detection")]
+    [Tooltip("Raycast start height above the character root.")]
     [SerializeField, Min(0.1f)]
-    private float ankleRaycastHeight = 0.4f;
+    private float supportRaycastHeight = 1f;
 
-    [Tooltip("Maximum downward raycast distance.")]
+    [Tooltip("Maximum distance used to find the surface below the character.")]
     [SerializeField, Min(0.5f)]
-    private float ankleRaycastDistance = 2f;
+    private float supportRaycastDistance = 4f;
 
     [SerializeField]
     private LayerMask groundLayers = ~0;
@@ -35,10 +54,19 @@ public class CharacterStepMover : MonoBehaviour
     private bool movePrepared;
 
     [SerializeField]
+    private bool stableOffsetsCaptured;
+
+    [SerializeField]
     private Vector3 startRootPosition;
 
     [SerializeField]
     private Vector3 targetRootPosition;
+
+    [SerializeField]
+    private Vector3 stablePlanarOffset;
+
+    [SerializeField]
+    private float rootHeightAboveInitialSurface;
 
     [SerializeField]
     private Vector3 initialRootPosition;
@@ -62,14 +90,16 @@ public class CharacterStepMover : MonoBehaviour
     }
 
     /// <summary>
-    /// Calculates the target root position before the real animation starts.
-    /// The final frame of the requested animation is sampled temporarily.
+    /// Prepares a stable root movement.
+    /// Lead movement uses fixed stair coordinates.
+    /// Join movement keeps the root completely stationary.
     /// </summary>
     public bool PrepareMove(
         StairGameController.FootSide foot,
         BoxCollider targetStep,
         string sampleStateName,
-        Vector3 climbWorldDirection
+        Vector3 climbWorldDirection,
+        bool keepRootPosition = false
     )
     {
         if (!InitializeReferences())
@@ -107,158 +137,101 @@ public class CharacterStepMover : MonoBehaviour
             return false;
         }
 
-        Transform activeAnkle =
-            GetFootBone(foot);
+        startRootPosition = characterRoot.position;
 
-        if (activeAnkle == null)
+        /*
+         * The second foot only joins the lead foot.
+         * The character has already reached the stair,
+         * so its root must remain at exactly the same coordinates.
+         */
+        if (keepRootPosition)
+        {
+            targetRootPosition = startRootPosition;
+            movePrepared = true;
+
+            Debug.Log(
+                $"Stationary join prepared | " +
+                $"Foot: {GetFootName(foot)} | " +
+                $"Root: {targetRootPosition}",
+                this
+            );
+
+            return true;
+        }
+
+        Vector3 climbDirection =
+            Vector3.ProjectOnPlane(
+                climbWorldDirection,
+                Vector3.up
+            ).normalized;
+
+        if (climbDirection.sqrMagnitude < 0.001f)
         {
             Debug.LogError(
-                $"The {GetFootName(foot)} foot bone could not be found.",
+                "The horizontal climb direction cannot be zero.",
                 this
             );
 
             return false;
         }
 
-        climbWorldDirection.Normalize();
-
         Vector3 sideDirection =
             Vector3.Cross(
                 Vector3.up,
-                climbWorldDirection
+                climbDirection
             ).normalized;
 
-        if (sideDirection.sqrMagnitude < 0.001f)
+        if (!stableOffsetsCaptured)
         {
-            sideDirection =
-                characterRoot.right;
+            CaptureStableOffsets(
+                targetStep,
+                climbDirection
+            );
         }
 
-        startRootPosition =
-            characterRoot.position;
-
-        Quaternion savedRootRotation =
-            characterRoot.rotation;
-
-        float savedAnimatorSpeed =
-            animator.speed;
-
-        bool savedApplyRootMotion =
-            animator.applyRootMotion;
-
         /*
-         * Save the exact Animator state currently visible.
-         * This may be Idle, LeadStep or JoinStep.
+         * The root target is calculated from the stair itself,
+         * not from the animated ankle. Therefore right, left and
+         * mirrored clips cannot introduce coordinate drift.
          */
-        AnimatorStateInfo savedStateInfo =
-            animator.GetCurrentAnimatorStateInfo(0);
+        Vector3 targetPosition =
+            targetStep.bounds.center +
+            stablePlanarOffset;
 
-        int savedStateHash =
-            savedStateInfo.fullPathHash;
-
-        float savedNormalizedTime =
-            savedStateInfo.normalizedTime;
-
-        float ankleHeightAboveSurface =
-            GetAnkleHeightAboveSurface(
-                activeAnkle
-            );
-
-        /*
-         * Preserve the left/right position of the active foot.
-         * This prevents both feet from being placed at the exact
-         * same lateral coordinate.
-         */
-        float lateralFootOffset =
-            Vector3.Dot(
-                activeAnkle.position -
-                characterRoot.position,
-                sideDirection
-            );
-
-        Vector3 targetAnklePosition =
-            new Vector3(
-                targetStep.bounds.center.x,
-                targetStep.bounds.max.y +
-                ankleHeightAboveSurface,
-                targetStep.bounds.center.z
-            );
-
-        targetAnklePosition +=
-            climbWorldDirection *
+        targetPosition +=
+            climbDirection *
             landingDepthOffset;
 
-        targetAnklePosition +=
+        targetPosition +=
             sideDirection *
-            lateralFootOffset;
+            sideOffsetCorrection;
 
-        /*
-         * Temporarily sample the final frame of the requested animation.
-         * This determines the ankle's final offset relative to the root.
-         */
-        animator.speed = 1f;
-        animator.applyRootMotion = false;
+        targetPosition.y =
+            targetStep.bounds.max.y +
+            rootHeightAboveInitialSurface +
+            extraLandingClearance;
 
-        animator.Play(
-            sampleStateName,
-            0,
-            0.999f
-        );
-
-        animator.Update(0f);
-
-        Vector3 finalAnkleOffset =
-            activeAnkle.position -
-            characterRoot.position;
-
-        targetRootPosition =
-            targetAnklePosition -
-            finalAnkleOffset;
-
-        /*
-         * Restore the root before restoring the previous animation pose.
-         */
-        characterRoot.position =
-            startRootPosition;
-
-        characterRoot.rotation =
-            savedRootRotation;
-
-        /*
-         * Restore the exact pose that was active before sampling.
-         * This is important for the transition between Lead and Join.
-         */
-        if (savedStateHash != 0)
+        if (preventDownwardMovement)
         {
-            animator.Play(
-                savedStateHash,
-                0,
-                savedNormalizedTime
-            );
-
-            animator.Update(0f);
+            targetPosition.y =
+                Mathf.Max(
+                    targetPosition.y,
+                    startRootPosition.y
+                );
         }
 
-        characterRoot.position =
-            startRootPosition;
-
-        characterRoot.rotation =
-            savedRootRotation;
-
-        animator.speed =
-            savedAnimatorSpeed;
-
-        animator.applyRootMotion =
-            savedApplyRootMotion;
+        targetRootPosition =
+            targetPosition;
 
         movePrepared = true;
 
         Debug.Log(
-            $"Character move prepared | " +
+            $"Stable character move prepared | " +
             $"Foot: {GetFootName(foot)} | " +
             $"Target step: {targetStep.name} | " +
             $"Start root: {startRootPosition} | " +
-            $"Target root: {targetRootPosition}",
+            $"Target root: {targetRootPosition} | " +
+            $"Planar offset: {stablePlanarOffset}",
             this
         );
 
@@ -266,8 +239,162 @@ public class CharacterStepMover : MonoBehaviour
     }
 
     /// <summary>
-    /// Moves the character root smoothly between the prepared positions.
-    /// Value must be between 0 and 1.
+    /// Captures one permanent offset between the character and the stair path.
+    /// This offset is reused for every stair.
+    /// </summary>
+    private void CaptureStableOffsets(
+        BoxCollider firstTargetStep,
+        Vector3 climbDirection
+    )
+    {
+        float automaticAdvance =
+            GetStairLengthAlongDirection(
+                firstTargetStep,
+                climbDirection
+            );
+
+        float firstAdvance =
+            firstStepAdvanceOverride > 0f
+                ? firstStepAdvanceOverride
+                : automaticAdvance;
+
+        Vector3 virtualPreviousStepCenter =
+            firstTargetStep.bounds.center -
+            climbDirection *
+            firstAdvance;
+
+        stablePlanarOffset =
+            Vector3.ProjectOnPlane(
+                characterRoot.position -
+                virtualPreviousStepCenter,
+                Vector3.up
+            );
+
+        float initialSurfaceHeight =
+            FindSurfaceHeightBelow(
+                characterRoot.position
+            );
+
+        rootHeightAboveInitialSurface =
+            characterRoot.position.y -
+            initialSurfaceHeight;
+
+        /*
+         * Protect against a bad raycast result.
+         */
+        if (rootHeightAboveInitialSurface < -0.5f ||
+            rootHeightAboveInitialSurface > 2f)
+        {
+            Debug.LogWarning(
+                "Initial root height measurement was invalid. " +
+                "Using zero as the base surface offset.",
+                this
+            );
+
+            rootHeightAboveInitialSurface = 0f;
+        }
+
+        stableOffsetsCaptured = true;
+
+        Debug.Log(
+            $"Stable stair offsets captured | " +
+            $"First advance: {firstAdvance:F3} | " +
+            $"Planar offset: {stablePlanarOffset} | " +
+            $"Base root height: {rootHeightAboveInitialSurface:F3}",
+            this
+        );
+    }
+
+    private float GetStairLengthAlongDirection(
+        BoxCollider step,
+        Vector3 direction
+    )
+    {
+        Vector3 absoluteDirection =
+            new Vector3(
+                Mathf.Abs(direction.x),
+                Mathf.Abs(direction.y),
+                Mathf.Abs(direction.z)
+            );
+
+        float length =
+            Vector3.Dot(
+                step.bounds.size,
+                absoluteDirection
+            );
+
+        return Mathf.Max(
+            length,
+            0.01f
+        );
+    }
+
+    private float FindSurfaceHeightBelow(
+        Vector3 worldPosition
+    )
+    {
+        Vector3 rayOrigin =
+            worldPosition +
+            Vector3.up *
+            supportRaycastHeight;
+
+        RaycastHit[] hits =
+            Physics.RaycastAll(
+                rayOrigin,
+                Vector3.down,
+                supportRaycastHeight +
+                supportRaycastDistance,
+                groundLayers,
+                QueryTriggerInteraction.Ignore
+            );
+
+        bool foundSurface = false;
+        float highestSurface =
+            float.NegativeInfinity;
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.transform == null)
+            {
+                continue;
+            }
+
+            if (hit.transform == characterRoot ||
+                hit.transform.IsChildOf(characterRoot))
+            {
+                continue;
+            }
+
+            if (hit.point.y >
+                worldPosition.y + 0.05f)
+            {
+                continue;
+            }
+
+            if (!foundSurface ||
+                hit.point.y > highestSurface)
+            {
+                highestSurface = hit.point.y;
+                foundSurface = true;
+            }
+        }
+
+        if (!foundSurface)
+        {
+            Debug.LogWarning(
+                "No support surface was found below the character. " +
+                "The current root height will be used.",
+                this
+            );
+
+            return worldPosition.y;
+        }
+
+        return highestSurface;
+    }
+
+    /// <summary>
+    /// Moves the root smoothly to the fixed stair coordinate.
     /// </summary>
     public void ApplyProgress(
         float normalizedProgress
@@ -279,7 +406,7 @@ public class CharacterStepMover : MonoBehaviour
             return;
         }
 
-        float clampedProgress =
+        float progress =
             Mathf.Clamp01(
                 normalizedProgress
             );
@@ -288,7 +415,7 @@ public class CharacterStepMover : MonoBehaviour
             Mathf.SmoothStep(
                 0f,
                 1f,
-                clampedProgress
+                progress
             );
 
         characterRoot.position =
@@ -299,9 +426,6 @@ public class CharacterStepMover : MonoBehaviour
             );
     }
 
-    /// <summary>
-    /// Places the character exactly at the calculated target position.
-    /// </summary>
     public void CompleteMove()
     {
         if (!movePrepared ||
@@ -321,9 +445,6 @@ public class CharacterStepMover : MonoBehaviour
         );
     }
 
-    /// <summary>
-    /// Cancels the current movement and restores the starting position.
-    /// </summary>
     public void CancelMove()
     {
         if (!movePrepared ||
@@ -343,9 +464,6 @@ public class CharacterStepMover : MonoBehaviour
         );
     }
 
-    /// <summary>
-    /// Returns the character to the position captured at scene start.
-    /// </summary>
     public void ResetCharacterPosition()
     {
         if (!InitializeReferences())
@@ -356,6 +474,9 @@ public class CharacterStepMover : MonoBehaviour
         CaptureInitialPosition();
 
         movePrepared = false;
+        stableOffsetsCaptured = false;
+        stablePlanarOffset = Vector3.zero;
+        rootHeightAboveInitialSurface = 0f;
 
         characterRoot.position =
             initialRootPosition;
@@ -366,7 +487,7 @@ public class CharacterStepMover : MonoBehaviour
         animator.applyRootMotion = false;
 
         Debug.Log(
-            "Character position was reset.",
+            "Character position and stable stair offsets were reset.",
             this
         );
     }
@@ -439,107 +560,6 @@ public class CharacterStepMover : MonoBehaviour
             characterRoot.rotation;
 
         initialPositionCaptured = true;
-    }
-
-    private Transform GetFootBone(
-        StairGameController.FootSide foot
-    )
-    {
-        HumanBodyBones footBone =
-            foot ==
-            StairGameController.FootSide.Right
-                ? HumanBodyBones.RightFoot
-                : HumanBodyBones.LeftFoot;
-
-        return animator.GetBoneTransform(
-            footBone
-        );
-    }
-
-    /// <summary>
-    /// Calculates the current ankle distance above the surface below it.
-    /// Character colliders are ignored.
-    /// </summary>
-    private float GetAnkleHeightAboveSurface(
-        Transform ankle
-    )
-    {
-        if (ankle == null)
-        {
-            return defaultAnkleHeight;
-        }
-
-        Vector3 rayOrigin =
-            ankle.position +
-            Vector3.up *
-            ankleRaycastHeight;
-
-        RaycastHit[] hits =
-            Physics.RaycastAll(
-                rayOrigin,
-                Vector3.down,
-                ankleRaycastHeight +
-                ankleRaycastDistance,
-                groundLayers,
-                QueryTriggerInteraction.Ignore
-            );
-
-        float closestDistance =
-            float.PositiveInfinity;
-
-        RaycastHit closestHit =
-            new RaycastHit();
-
-        bool foundSurface = false;
-
-        foreach (RaycastHit hit in hits)
-        {
-            if (hit.transform == null)
-            {
-                continue;
-            }
-
-            /*
-             * Ignore all colliders belonging to the character.
-             */
-            if (hit.transform ==
-                    characterRoot ||
-                hit.transform.IsChildOf(
-                    characterRoot
-                ))
-            {
-                continue;
-            }
-
-            if (hit.distance >=
-                closestDistance)
-            {
-                continue;
-            }
-
-            closestDistance =
-                hit.distance;
-
-            closestHit =
-                hit;
-
-            foundSurface = true;
-        }
-
-        if (!foundSurface)
-        {
-            return defaultAnkleHeight;
-        }
-
-        float ankleHeight =
-            ankle.position.y -
-            closestHit.point.y;
-
-        return Mathf.Clamp(
-            ankleHeight,
-            0.02f,
-            0.3f
-        );
     }
 
     private string GetFootName(
