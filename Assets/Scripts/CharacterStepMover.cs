@@ -1,80 +1,39 @@
 using UnityEngine;
 
+/// <summary>
+/// Keeps the character GameObject completely fixed in world space.
+/// The Animator is allowed to move only the humanoid bones.
+/// Stair/world progression must be handled by moving the environment,
+/// not by translating the character root.
+/// </summary>
 public class CharacterStepMover : MonoBehaviour
 {
     [Header("References")]
     [SerializeField]
     private Animator animator;
 
-    [Tooltip("The Transform that physically moves between stairs.")]
+    [Tooltip("The transform that must remain completely fixed.")]
     [SerializeField]
     private Transform characterRoot;
 
-    [Header("Stable Landing Coordinates")]
-    [Tooltip("Moves the character slightly deeper onto each stair.")]
+    [Header("Root Lock")]
+    [Tooltip("Locks the root position every frame.")]
     [SerializeField]
-    private float landingDepthOffset = 0f;
+    private bool lockPosition = true;
 
-    [Tooltip(
-        "Extra vertical distance above the stair surface. " +
-        "Keep this at the value that visually places the shoes correctly."
-    )]
-    [SerializeField, Min(0f)]
-    private float extraLandingClearance = 0.4f;
-
-    [Tooltip("Fine adjustment across the width of the stairs.")]
+    [Tooltip("Locks the root rotation every frame.")]
     [SerializeField]
-    private float sideOffsetCorrection = 0f;
-
-    [Tooltip(
-        "Optional override for the first forward movement. " +
-        "Zero automatically uses the target stair depth."
-    )]
-    [SerializeField, Min(0f)]
-    private float firstStepAdvanceOverride = 0f;
-
-    [Tooltip("Prevents the character root from moving downward while climbing.")]
-    [SerializeField]
-    private bool preventDownwardMovement = true;
-
-    [Header("Initial Surface Detection")]
-    [Tooltip("Raycast start height above the character root.")]
-    [SerializeField, Min(0.1f)]
-    private float supportRaycastHeight = 1f;
-
-    [Tooltip("Maximum distance used to find the surface below the character.")]
-    [SerializeField, Min(0.5f)]
-    private float supportRaycastDistance = 4f;
-
-    [SerializeField]
-    private LayerMask groundLayers = ~0;
+    private bool lockRotation = true;
 
     [Header("Runtime State - Read Only")]
     [SerializeField]
-    private bool movePrepared;
+    private Vector3 lockedWorldPosition;
 
     [SerializeField]
-    private bool stableOffsetsCaptured;
+    private Quaternion lockedWorldRotation;
 
     [SerializeField]
-    private Vector3 startRootPosition;
-
-    [SerializeField]
-    private Vector3 targetRootPosition;
-
-    [SerializeField]
-    private Vector3 stablePlanarOffset;
-
-    [SerializeField]
-    private float rootHeightAboveInitialSurface;
-
-    [SerializeField]
-    private Vector3 initialRootPosition;
-
-    [SerializeField]
-    private Quaternion initialRootRotation;
-
-    private bool initialPositionCaptured;
+    private bool rootCaptured;
 
     private void Awake()
     {
@@ -84,15 +43,19 @@ public class CharacterStepMover : MonoBehaviour
             return;
         }
 
-        CaptureInitialPosition();
+        CaptureCurrentRootTransform();
 
         animator.applyRootMotion = false;
     }
 
+    private void LateUpdate()
+    {
+        EnforceRootLock();
+    }
+
     /// <summary>
-    /// Prepares a stable root movement.
-    /// Lead movement uses fixed stair coordinates.
-    /// Join movement keeps the root completely stationary.
+    /// Kept for compatibility with StairGameController.
+    /// No character translation is prepared.
     /// </summary>
     public bool PrepareMove(
         StairGameController.FootSide foot,
@@ -127,111 +90,17 @@ public class CharacterStepMover : MonoBehaviour
             return false;
         }
 
-        if (climbWorldDirection.sqrMagnitude < 0.001f)
-        {
-            Debug.LogError(
-                "Climb direction cannot be zero.",
-                this
-            );
-
-            return false;
-        }
-
-        startRootPosition = characterRoot.position;
-
         /*
-         * The second foot only joins the lead foot.
-         * The character has already reached the stair,
-         * so its root must remain at exactly the same coordinates.
+         * Do not move or sample the character root.
+         * Only the Animator state will animate the humanoid bones.
          */
-        if (keepRootPosition)
-        {
-            targetRootPosition = startRootPosition;
-            movePrepared = true;
-
-            Debug.Log(
-                $"Stationary join prepared | " +
-                $"Foot: {GetFootName(foot)} | " +
-                $"Root: {targetRootPosition}",
-                this
-            );
-
-            return true;
-        }
-
-        Vector3 climbDirection =
-            Vector3.ProjectOnPlane(
-                climbWorldDirection,
-                Vector3.up
-            ).normalized;
-
-        if (climbDirection.sqrMagnitude < 0.001f)
-        {
-            Debug.LogError(
-                "The horizontal climb direction cannot be zero.",
-                this
-            );
-
-            return false;
-        }
-
-        Vector3 sideDirection =
-            Vector3.Cross(
-                Vector3.up,
-                climbDirection
-            ).normalized;
-
-        if (!stableOffsetsCaptured)
-        {
-            CaptureStableOffsets(
-                targetStep,
-                climbDirection
-            );
-        }
-
-        /*
-         * The root target is calculated from the stair itself,
-         * not from the animated ankle. Therefore right, left and
-         * mirrored clips cannot introduce coordinate drift.
-         */
-        Vector3 targetPosition =
-            targetStep.bounds.center +
-            stablePlanarOffset;
-
-        targetPosition +=
-            climbDirection *
-            landingDepthOffset;
-
-        targetPosition +=
-            sideDirection *
-            sideOffsetCorrection;
-
-        targetPosition.y =
-            targetStep.bounds.max.y +
-            rootHeightAboveInitialSurface +
-            extraLandingClearance;
-
-        if (preventDownwardMovement)
-        {
-            targetPosition.y =
-                Mathf.Max(
-                    targetPosition.y,
-                    startRootPosition.y
-                );
-        }
-
-        targetRootPosition =
-            targetPosition;
-
-        movePrepared = true;
+        EnforceRootLock();
 
         Debug.Log(
-            $"Stable character move prepared | " +
+            $"Fixed-root movement prepared | " +
             $"Foot: {GetFootName(foot)} | " +
-            $"Target step: {targetStep.name} | " +
-            $"Start root: {startRootPosition} | " +
-            $"Target root: {targetRootPosition} | " +
-            $"Planar offset: {stablePlanarOffset}",
+            $"Animation: {sampleStateName} | " +
+            $"Target: {targetStep.name}",
             this
         );
 
@@ -239,231 +108,40 @@ public class CharacterStepMover : MonoBehaviour
     }
 
     /// <summary>
-    /// Captures one permanent offset between the character and the stair path.
-    /// This offset is reused for every stair.
+    /// Intentionally does not move the character root.
     /// </summary>
-    private void CaptureStableOffsets(
-        BoxCollider firstTargetStep,
-        Vector3 climbDirection
-    )
+    public void ApplyProgress(float normalizedProgress)
     {
-        float automaticAdvance =
-            GetStairLengthAlongDirection(
-                firstTargetStep,
-                climbDirection
-            );
-
-        float firstAdvance =
-            firstStepAdvanceOverride > 0f
-                ? firstStepAdvanceOverride
-                : automaticAdvance;
-
-        Vector3 virtualPreviousStepCenter =
-            firstTargetStep.bounds.center -
-            climbDirection *
-            firstAdvance;
-
-        stablePlanarOffset =
-            Vector3.ProjectOnPlane(
-                characterRoot.position -
-                virtualPreviousStepCenter,
-                Vector3.up
-            );
-
-        float initialSurfaceHeight =
-            FindSurfaceHeightBelow(
-                characterRoot.position
-            );
-
-        rootHeightAboveInitialSurface =
-            characterRoot.position.y -
-            initialSurfaceHeight;
-
-        /*
-         * Protect against a bad raycast result.
-         */
-        if (rootHeightAboveInitialSurface < -0.5f ||
-            rootHeightAboveInitialSurface > 2f)
-        {
-            Debug.LogWarning(
-                "Initial root height measurement was invalid. " +
-                "Using zero as the base surface offset.",
-                this
-            );
-
-            rootHeightAboveInitialSurface = 0f;
-        }
-
-        stableOffsetsCaptured = true;
-
-        Debug.Log(
-            $"Stable stair offsets captured | " +
-            $"First advance: {firstAdvance:F3} | " +
-            $"Planar offset: {stablePlanarOffset} | " +
-            $"Base root height: {rootHeightAboveInitialSurface:F3}",
-            this
-        );
-    }
-
-    private float GetStairLengthAlongDirection(
-        BoxCollider step,
-        Vector3 direction
-    )
-    {
-        Vector3 absoluteDirection =
-            new Vector3(
-                Mathf.Abs(direction.x),
-                Mathf.Abs(direction.y),
-                Mathf.Abs(direction.z)
-            );
-
-        float length =
-            Vector3.Dot(
-                step.bounds.size,
-                absoluteDirection
-            );
-
-        return Mathf.Max(
-            length,
-            0.01f
-        );
-    }
-
-    private float FindSurfaceHeightBelow(
-        Vector3 worldPosition
-    )
-    {
-        Vector3 rayOrigin =
-            worldPosition +
-            Vector3.up *
-            supportRaycastHeight;
-
-        RaycastHit[] hits =
-            Physics.RaycastAll(
-                rayOrigin,
-                Vector3.down,
-                supportRaycastHeight +
-                supportRaycastDistance,
-                groundLayers,
-                QueryTriggerInteraction.Ignore
-            );
-
-        bool foundSurface = false;
-        float highestSurface =
-            float.NegativeInfinity;
-
-        foreach (RaycastHit hit in hits)
-        {
-            if (hit.transform == null)
-            {
-                continue;
-            }
-
-            if (hit.transform == characterRoot ||
-                hit.transform.IsChildOf(characterRoot))
-            {
-                continue;
-            }
-
-            if (hit.point.y >
-                worldPosition.y + 0.05f)
-            {
-                continue;
-            }
-
-            if (!foundSurface ||
-                hit.point.y > highestSurface)
-            {
-                highestSurface = hit.point.y;
-                foundSurface = true;
-            }
-        }
-
-        if (!foundSurface)
-        {
-            Debug.LogWarning(
-                "No support surface was found below the character. " +
-                "The current root height will be used.",
-                this
-            );
-
-            return worldPosition.y;
-        }
-
-        return highestSurface;
+        EnforceRootLock();
     }
 
     /// <summary>
-    /// Moves the root smoothly to the fixed stair coordinate.
+    /// Keeps the root at its fixed world position.
     /// </summary>
-    public void ApplyProgress(
-        float normalizedProgress
-    )
-    {
-        if (!movePrepared ||
-            characterRoot == null)
-        {
-            return;
-        }
-
-        float progress =
-            Mathf.Clamp01(
-                normalizedProgress
-            );
-
-        float smoothProgress =
-            Mathf.SmoothStep(
-                0f,
-                1f,
-                progress
-            );
-
-        characterRoot.position =
-            Vector3.Lerp(
-                startRootPosition,
-                targetRootPosition,
-                smoothProgress
-            );
-    }
-
     public void CompleteMove()
     {
-        if (!movePrepared ||
-            characterRoot == null)
-        {
-            return;
-        }
-
-        characterRoot.position =
-            targetRootPosition;
-
-        movePrepared = false;
+        EnforceRootLock();
 
         Debug.Log(
-            $"Character movement completed at {targetRootPosition}.",
+            $"Character root remained fixed at {lockedWorldPosition}.",
             this
         );
     }
 
     public void CancelMove()
     {
-        if (!movePrepared ||
-            characterRoot == null)
-        {
-            return;
-        }
-
-        characterRoot.position =
-            startRootPosition;
-
-        movePrepared = false;
+        EnforceRootLock();
 
         Debug.LogWarning(
-            "Character movement was cancelled.",
+            "Character animation movement was cancelled. " +
+            "The root remained fixed.",
             this
         );
     }
 
+    /// <summary>
+    /// Restores the originally captured world position and rotation.
+    /// </summary>
     public void ResetCharacterPosition()
     {
         if (!InitializeReferences())
@@ -471,25 +149,67 @@ public class CharacterStepMover : MonoBehaviour
             return;
         }
 
-        CaptureInitialPosition();
+        if (!rootCaptured)
+        {
+            CaptureCurrentRootTransform();
+        }
 
-        movePrepared = false;
-        stableOffsetsCaptured = false;
-        stablePlanarOffset = Vector3.zero;
-        rootHeightAboveInitialSurface = 0f;
-
-        characterRoot.position =
-            initialRootPosition;
-
-        characterRoot.rotation =
-            initialRootRotation;
+        EnforceRootLock();
 
         animator.applyRootMotion = false;
 
         Debug.Log(
-            "Character position and stable stair offsets were reset.",
+            "Character root was reset to its fixed transform.",
             this
         );
+    }
+
+    /// <summary>
+    /// Use this from the component context menu after manually
+    /// placing the character in the desired starting position.
+    /// </summary>
+    [ContextMenu("Capture Current Root Transform")]
+    public void CaptureCurrentRootTransform()
+    {
+        if (!InitializeReferences())
+        {
+            return;
+        }
+
+        lockedWorldPosition =
+            characterRoot.position;
+
+        lockedWorldRotation =
+            characterRoot.rotation;
+
+        rootCaptured = true;
+
+        Debug.Log(
+            $"Character root transform captured | " +
+            $"Position: {lockedWorldPosition}",
+            this
+        );
+    }
+
+    private void EnforceRootLock()
+    {
+        if (!rootCaptured ||
+            characterRoot == null)
+        {
+            return;
+        }
+
+        if (lockPosition)
+        {
+            characterRoot.position =
+                lockedWorldPosition;
+        }
+
+        if (lockRotation)
+        {
+            characterRoot.rotation =
+                lockedWorldRotation;
+        }
     }
 
     private bool InitializeReferences()
@@ -543,23 +263,6 @@ public class CharacterStepMover : MonoBehaviour
         }
 
         return true;
-    }
-
-    private void CaptureInitialPosition()
-    {
-        if (initialPositionCaptured ||
-            characterRoot == null)
-        {
-            return;
-        }
-
-        initialRootPosition =
-            characterRoot.position;
-
-        initialRootRotation =
-            characterRoot.rotation;
-
-        initialPositionCaptured = true;
     }
 
     private string GetFootName(
