@@ -149,6 +149,25 @@ public sealed partial class StairClimbControllerV2
     [Tooltip("Minimum bend-direction hint offset, measured forward from the hip/ankle midpoint.")]
     [SerializeField, Range(0.02f, 0.50f)] private float joinKneeHintBaseForward = 0.24f;
 
+    [Header("Join Pelvis Forward Clamp - Fix 11C")]
+    [Tooltip("Limits only the EXTRA forward translation of the Humanoid Hips bone during Join. Root movement, vertical pelvis motion, pelvis rotation, knee flex and foot IK remain untouched.")]
+    [SerializeField] private bool enableJoinPelvisForwardClamp = true;
+
+    [Tooltip("Maximum extra forward drift allowed for the Hips bone relative to its take-off position and the moving root. 0.015 = 1.5 cm.")]
+    [SerializeField, Range(0f, 0.08f)] private float joinPelvisMaxExtraForward = 0.015f;
+
+    [Tooltip("Strength of the pelvis clamp. Keep below 1 for a natural amount of residual hip motion.")]
+    [SerializeField, Range(0f, 1f)] private float joinPelvisForwardClampStrength = 0.90f;
+
+    [Tooltip("Join progress where the pelvis clamp has smoothly reached full strength.")]
+    [SerializeField, Range(0.05f, 0.40f)] private float joinPelvisClampBlendInEnd = 0.18f;
+
+    [Tooltip("Join progress where the pelvis clamp starts releasing so the transition into the final planted/Idle pose stays smooth.")]
+    [SerializeField, Range(0.55f, 0.95f)] private float joinPelvisClampReleaseStart = 0.80f;
+
+    private bool joinPelvisReferenceCaptured;
+    private float joinPelvisStartForwardRelativeToRoot;
+
     [Header("Join Upper Body Animator Layer - Alternative")]
     [Tooltip("During Join, blend only the upper body from the already-natural Lead animation. Legs remain controlled by the current Join + IK solution.")]
     [SerializeField] private bool useJoinUpperBodyAnimatorLayer = true;
@@ -296,7 +315,101 @@ public sealed partial class StairClimbControllerV2
                 : 0f;
 
         CaptureJoinTorsoPose();
+        CaptureJoinPelvisForwardReference();
         BeginJoinUpperBodyLayer(movingFoot);
+    }
+
+    private void CaptureJoinPelvisForwardReference()
+    {
+        joinPelvisReferenceCaptured = false;
+
+        if (!enableJoinPelvisForwardClamp || animator == null || movementRoot == null)
+        {
+            return;
+        }
+
+        Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+        if (hips == null)
+        {
+            return;
+        }
+
+        Vector3 forward = Vector3.ProjectOnPlane(climbDirection, Vector3.up);
+        if (forward.sqrMagnitude <= 0.000001f)
+        {
+            forward = Vector3.ProjectOnPlane(movementRoot.forward, Vector3.up);
+        }
+
+        if (forward.sqrMagnitude <= 0.000001f)
+        {
+            return;
+        }
+
+        forward.Normalize();
+        joinPelvisStartForwardRelativeToRoot = Vector3.Dot(
+            hips.position - movementRoot.position,
+            forward
+        );
+        joinPelvisReferenceCaptured = true;
+    }
+
+    private void ApplyJoinPelvisForwardClamp()
+    {
+        if (!enableJoinPelvisForwardClamp ||
+            !proceduralJoinSwingActive ||
+            !joinPelvisReferenceCaptured ||
+            animator == null ||
+            movementRoot == null)
+        {
+            return;
+        }
+
+        Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+        if (hips == null)
+        {
+            return;
+        }
+
+        Vector3 forward = Vector3.ProjectOnPlane(climbDirection, Vector3.up);
+        if (forward.sqrMagnitude <= 0.000001f)
+        {
+            forward = Vector3.ProjectOnPlane(movementRoot.forward, Vector3.up);
+        }
+
+        if (forward.sqrMagnitude <= 0.000001f)
+        {
+            return;
+        }
+
+        forward.Normalize();
+
+        float p = Mathf.Clamp01(proceduralJoinSwingProgress);
+        float blendInEnd = Mathf.Clamp(joinPelvisClampBlendInEnd, 0.05f, 0.40f);
+        float releaseStart = Mathf.Clamp(joinPelvisClampReleaseStart, blendInEnd + 0.15f, 0.95f);
+
+        float fadeIn = SmoothStep01(Mathf.InverseLerp(0f, blendInEnd, p));
+        float fadeOut = 1f - SmoothStep01(Mathf.InverseLerp(releaseStart, 1f, p));
+        float weight = Mathf.Clamp01(joinPelvisForwardClampStrength * fadeIn * fadeOut);
+
+        if (weight <= 0.001f)
+        {
+            return;
+        }
+
+        float currentForwardRelativeToRoot = Vector3.Dot(
+            hips.position - movementRoot.position,
+            forward
+        );
+        float extraForward = currentForwardRelativeToRoot - joinPelvisStartForwardRelativeToRoot;
+        float maxExtra = Mathf.Max(0f, joinPelvisMaxExtraForward);
+
+        if (extraForward <= maxExtra)
+        {
+            return;
+        }
+
+        float correction = (extraForward - maxExtra) * weight;
+        hips.position -= forward * correction;
     }
 
     private void UpdateProceduralJoinSwing(
@@ -555,6 +668,11 @@ public sealed partial class StairClimbControllerV2
 
     private void ApplyProceduralJoinKneeHint()
     {
+        // Fix 11C: suppress the clip's extra Hips lunge before solving the knee and
+        // foot IK. This changes only the Hips translation along the climb direction;
+        // Y motion and rotation remain owned by the existing animation/root solution.
+        ApplyJoinPelvisForwardClamp();
+
         AvatarIKHint rightHint = AvatarIKHint.RightKnee;
         AvatarIKHint leftHint = AvatarIKHint.LeftKnee;
 
@@ -613,6 +731,7 @@ public sealed partial class StairClimbControllerV2
         joinSpinePoseCaptured = false;
         joinChestPoseCaptured = false;
         joinUpperChestPoseCaptured = false;
+        joinPelvisReferenceCaptured = false;
     }
 
     private void BeginLeadTakeoffGuard(FootSide movingFoot)
@@ -1679,6 +1798,10 @@ public sealed partial class StairClimbControllerV2
         );
 
         firstStepJoinForwardShare = Mathf.Clamp01(firstStepJoinForwardShare);
+        joinPelvisMaxExtraForward = Mathf.Clamp(joinPelvisMaxExtraForward, 0f, 0.08f);
+        joinPelvisForwardClampStrength = Mathf.Clamp01(joinPelvisForwardClampStrength);
+        joinPelvisClampBlendInEnd = Mathf.Clamp(joinPelvisClampBlendInEnd, 0.05f, 0.40f);
+        joinPelvisClampReleaseStart = Mathf.Clamp(joinPelvisClampReleaseStart, 0.55f, 0.95f);
         wholeCharacterStepLift = Mathf.Max(0f, wholeCharacterStepLift);
         splitStanceVerticalShare = Mathf.Clamp(splitStanceVerticalShare, 0f, 0.65f);
         leadFootReleaseTime = Mathf.Clamp(leadFootReleaseTime, 0f, 0.35f);

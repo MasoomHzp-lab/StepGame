@@ -23199,7 +23199,7 @@ MonoBehaviour:
   leftLeadStateName: LeftLeadStep
   rightJoinStateName: RightJoinStep
   leftJoinStateName: LeftJoinStep
-  leadForwardShare: 0.58
+  leadForwardShare: 0.75
   leadVerticalShare: 0.92
   bodyLandingOffsetAlongClimb: -0.11
   bodyHeightOffsetOnStep: 0
@@ -23254,7 +23254,7 @@ MonoBehaviour:
   requiredNextFoot: 0
   pendingTargetStepIndex: -1
   controllerDataVersion: 10
-  movementAnimationSpeed: 1.12
+  movementAnimationSpeed: 1.15
   useFirstStepJoinForwardOverride: 0
   firstStepJoinForwardShare: 0.11
   wholeCharacterStepLift: 0.029
@@ -23288,7 +23288,22 @@ MonoBehaviour:
   joinTorsoStabilizationWeight: 0.15
   joinTorsoStabilizationStart: 0.08
   joinTorsoStabilizationEnd: 0.88
+  useSeparatedJoinRootAxes: 1
+  joinForwardEarlyShare: 0
+  joinVerticalRiseDelay: 0.14
+  joinVerticalEarlyShare: 0.1
   joinKneeHintBaseForward: 0.24
+  enableJoinPelvisForwardClamp: 1
+  joinPelvisMaxExtraForward: 0.01
+  joinPelvisForwardClampStrength: 1
+  joinPelvisClampBlendInEnd: 0.18
+  joinPelvisClampReleaseStart: 0.8
+  useJoinUpperBodyAnimatorLayer: 1
+  joinUpperBodyLayerName: Join Upper Body
+  joinUpperBodyLayerWeight: 0.62
+  joinUpperBodyBlendInEnd: 0.22
+  joinUpperBodyBlendOutStart: 0.7
+  joinUpperBodyLeadSampleStart: 0.16
   completedPoseIkReleaseDuration: 0.12
 --- !u!23 &657784843149542523
 MeshRenderer:
