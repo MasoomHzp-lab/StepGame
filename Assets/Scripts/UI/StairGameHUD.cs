@@ -5,14 +5,8 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Runtime HUD for StepGame:
-/// - completed stair count
-/// - progress
-/// - exercise mode selection
-/// - 20-step milestone toast
-/// - exit
-///
-/// Works with the existing StairClimbControllerV2 API.
+/// Runtime HUD for StepGame.
+/// v3: exercise mode can be changed after completed stairs without resetting progress.
 /// </summary>
 public class StairGameHUD : MonoBehaviour
 {
@@ -58,6 +52,8 @@ public class StairGameHUD : MonoBehaviour
     private int totalSteps;
     private int lastDisplayedSteps = -1;
     private int lastMilestoneShown;
+    private StairClimbControllerV2.LegActivationMode lastDisplayedMode;
+    private bool hasDisplayedMode;
     private Coroutine milestoneRoutine;
 
     public int CompletedSteps => CalculateCompletedSteps();
@@ -94,6 +90,8 @@ public class StairGameHUD : MonoBehaviour
     private void Update()
     {
         RefreshHUD(false);
+        RefreshModeStateIfNeeded();
+        RefreshModeButtonInteractability();
     }
 
     private void ResolveTotalSteps()
@@ -119,7 +117,7 @@ public class StairGameHUD : MonoBehaviour
         }
 
         if (totalStepText != null)
-            totalStepText.text = $"از {totalSteps}";
+            totalStepText.text = $"of {totalSteps}";
     }
 
     private void RefreshHUD(bool force)
@@ -149,16 +147,14 @@ public class StairGameHUD : MonoBehaviour
         CheckMilestone(completed);
     }
 
-    /// <summary>
-    /// Count logic is different for single-leg modes.
-    /// BothFeet: a stair counts after BOTH feet complete it.
-    /// RightOnly / LeftOnly: the active leg's index is the score.
-    /// </summary>
     private int CalculateCompletedSteps()
     {
         if (stairController == null)
             return 0;
 
+        // In the current controller, single-leg mode still automatically
+        // completes the join movement, so both indexes normally end equal.
+        // This mode-aware version also remains correct if that changes later.
         int completedIndex;
 
         switch (stairController.ActivationMode)
@@ -182,44 +178,43 @@ public class StairGameHUD : MonoBehaviour
         return Mathf.Clamp(completedIndex + 1, 0, totalSteps);
     }
 
-    private bool CanChangeMode()
-    {
-        if (stairController == null || stairController.IsAnimating)
-            return false;
-
-        // Changing mode resets StairClimbControllerV2.
-        // Therefore only allow it before the exercise has actually progressed.
-        return CalculateCompletedSteps() == 0;
-    }
-
     public void SetBothFeetMode()
     {
-        if (!CanChangeMode())
-            return;
-
-        stairController.SetBothFeetMode();
-        RefreshModeSelection();
-        RefreshHUD(true);
+        TryChangeMode(StairClimbControllerV2.LegActivationMode.BothFeet);
     }
 
     public void SetRightOnlyMode()
     {
-        if (!CanChangeMode())
-            return;
-
-        stairController.SetRightOnlyMode();
-        RefreshModeSelection();
-        RefreshHUD(true);
+        TryChangeMode(StairClimbControllerV2.LegActivationMode.RightOnly);
     }
 
     public void SetLeftOnlyMode()
     {
-        if (!CanChangeMode())
+        TryChangeMode(StairClimbControllerV2.LegActivationMode.LeftOnly);
+    }
+
+    private void TryChangeMode(StairClimbControllerV2.LegActivationMode newMode)
+    {
+        if (stairController == null)
             return;
 
-        stairController.SetLeftOnlyMode();
+        if (!stairController.TrySetActivationModeWithoutReset(newMode))
+            return;
+
         RefreshModeSelection();
         RefreshHUD(true);
+    }
+
+    private void RefreshModeStateIfNeeded()
+    {
+        if (stairController == null)
+            return;
+
+        if (!hasDisplayedMode ||
+            stairController.ActivationMode != lastDisplayedMode)
+        {
+            RefreshModeSelection();
+        }
     }
 
     private void RefreshModeSelection()
@@ -227,26 +222,53 @@ public class StairGameHUD : MonoBehaviour
         if (stairController == null)
             return;
 
-        bool both =
-            stairController.ActivationMode ==
-            StairClimbControllerV2.LegActivationMode.BothFeet;
-
-        bool right =
-            stairController.ActivationMode ==
-            StairClimbControllerV2.LegActivationMode.RightOnly;
-
-        bool left =
-            stairController.ActivationMode ==
-            StairClimbControllerV2.LegActivationMode.LeftOnly;
+        var mode = stairController.ActivationMode;
 
         if (bothFeetSelected != null)
-            bothFeetSelected.SetActive(both);
+            bothFeetSelected.SetActive(
+                mode == StairClimbControllerV2.LegActivationMode.BothFeet
+            );
 
         if (rightOnlySelected != null)
-            rightOnlySelected.SetActive(right);
+            rightOnlySelected.SetActive(
+                mode == StairClimbControllerV2.LegActivationMode.RightOnly
+            );
 
         if (leftOnlySelected != null)
-            leftOnlySelected.SetActive(left);
+            leftOnlySelected.SetActive(
+                mode == StairClimbControllerV2.LegActivationMode.LeftOnly
+            );
+
+        lastDisplayedMode = mode;
+        hasDisplayedMode = true;
+    }
+
+    private void RefreshModeButtonInteractability()
+    {
+        if (stairController == null)
+            return;
+
+        bool canChange = stairController.CanChangeActivationModeWithoutReset;
+
+        // Keep the currently selected button visually active/click-safe.
+        // Other choices are disabled only during an unsafe half-step/animation.
+        if (bothFeetButton != null)
+            bothFeetButton.interactable =
+                canChange ||
+                stairController.ActivationMode ==
+                StairClimbControllerV2.LegActivationMode.BothFeet;
+
+        if (rightOnlyButton != null)
+            rightOnlyButton.interactable =
+                canChange ||
+                stairController.ActivationMode ==
+                StairClimbControllerV2.LegActivationMode.RightOnly;
+
+        if (leftOnlyButton != null)
+            leftOnlyButton.interactable =
+                canChange ||
+                stairController.ActivationMode ==
+                StairClimbControllerV2.LegActivationMode.LeftOnly;
     }
 
     private void CheckMilestone(int completed)
@@ -270,11 +292,11 @@ public class StairGameHUD : MonoBehaviour
     private IEnumerator ShowMilestone(int completed)
     {
         if (milestoneTitleText != null)
-            milestoneTitleText.text = "تبریک!";
+            milestoneTitleText.text = "Congratulations!";
 
         if (milestoneMessageText != null)
             milestoneMessageText.text =
-                $"{completed} پله را با موفقیت پشت سر گذاشتید";
+                $"You successfully completed {completed} stairs!";
 
         audioManager?.PlayMilestoneSound();
 

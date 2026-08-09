@@ -3,9 +3,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Displays right / left / total muscle power.
-/// The future API only needs to call SetPowerValues(...).
-/// Default display is percentage to match the current UI design.
+/// Right / left / total muscle-power display.
+/// v3 adds:
+/// - inspector live-test mode
+/// - separate API entry points
+/// - clear distinction between test data and real external data
 /// </summary>
 public class StairGamePowerUI : MonoBehaviour
 {
@@ -23,9 +25,19 @@ public class StairGamePowerUI : MonoBehaviour
     [SerializeField, Min(1f)] private float maximumValue = 100f;
     [SerializeField] private string unit = "%";
 
+    [Header("Debug Test - Disable When API Is Connected")]
+    [SerializeField] private bool useTestValues = false;
+    [SerializeField, Range(0f, 100f)] private float testRightPower = 72f;
+    [SerializeField, Range(0f, 100f)] private float testLeftPower = 68f;
+    [SerializeField, Range(0f, 100f)] private float testTotalPower = 70f;
+
     private float rightPower;
     private float leftPower;
     private float totalPower;
+
+    public float RightPower => rightPower;
+    public float LeftPower => leftPower;
+    public float TotalPower => totalPower;
 
     private void Start()
     {
@@ -33,11 +45,22 @@ public class StairGamePowerUI : MonoBehaviour
         ConfigureBar(leftPowerBar);
         ConfigureBar(totalPowerBar);
 
-        SetPowerValues(0f, 0f);
+        if (useTestValues)
+            ApplyTestValues();
+        else
+            SetPowerValues(0f, 0f, 0f);
+    }
+
+    private void Update()
+    {
+        // Lets you move the three Inspector test sliders during Play Mode
+        // and instantly verify that the UI wiring works.
+        if (useTestValues)
+            ApplyTestValues();
     }
 
     /// <summary>
-    /// Use when total power is the average of right and left.
+    /// API entry point when total = average of right and left.
     /// </summary>
     public void SetPowerValues(float right, float left)
     {
@@ -45,15 +68,32 @@ public class StairGamePowerUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Use this overload if the API provides an independent total-power value.
+    /// API entry point when the API provides right, left and total separately.
     /// </summary>
     public void SetPowerValues(float right, float left, float total)
     {
-        rightPower = Mathf.Clamp(right, 0f, maximumValue);
-        leftPower = Mathf.Clamp(left, 0f, maximumValue);
-        totalPower = Mathf.Clamp(total, 0f, maximumValue);
+        // Real API data should take control once explicitly received.
+        useTestValues = false;
 
-        Refresh();
+        ApplyValues(right, left, total);
+    }
+
+    public void SetRightPowerFromApi(float right)
+    {
+        useTestValues = false;
+        ApplyValues(right, leftPower, (right + leftPower) * 0.5f);
+    }
+
+    public void SetLeftPowerFromApi(float left)
+    {
+        useTestValues = false;
+        ApplyValues(rightPower, left, (rightPower + left) * 0.5f);
+    }
+
+    public void SetTotalPowerFromApi(float total)
+    {
+        useTestValues = false;
+        ApplyValues(rightPower, leftPower, total);
     }
 
     public void SetMaximumValue(float maxValue)
@@ -63,6 +103,20 @@ public class StairGamePowerUI : MonoBehaviour
         ConfigureBar(rightPowerBar);
         ConfigureBar(leftPowerBar);
         ConfigureBar(totalPowerBar);
+
+        Refresh();
+    }
+
+    private void ApplyTestValues()
+    {
+        ApplyValues(testRightPower, testLeftPower, testTotalPower);
+    }
+
+    private void ApplyValues(float right, float left, float total)
+    {
+        rightPower = Mathf.Clamp(right, 0f, maximumValue);
+        leftPower = Mathf.Clamp(left, 0f, maximumValue);
+        totalPower = Mathf.Clamp(total, 0f, maximumValue);
 
         Refresh();
     }
@@ -98,9 +152,19 @@ public class StairGamePowerUI : MonoBehaviour
         bar.interactable = false;
     }
 
-    [ContextMenu("Preview 72 / 68 / 70")]
-    private void PreviewValues()
+    [ContextMenu("Enable Test 72 / 68 / 70")]
+    private void EnablePreviewValues()
     {
-        SetPowerValues(72f, 68f, 70f);
+        useTestValues = true;
+        testRightPower = 72f;
+        testLeftPower = 68f;
+        testTotalPower = 70f;
+        ApplyTestValues();
+    }
+
+    [ContextMenu("Disable Test Values")]
+    private void DisablePreviewValues()
+    {
+        useTestValues = false;
     }
 }

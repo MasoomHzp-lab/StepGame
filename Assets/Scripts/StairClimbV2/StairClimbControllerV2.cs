@@ -19,7 +19,7 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
 {
     // Serialized tuning values must never be migrated or overwritten at runtime.
     // Field initializers below are the defaults for newly added components.
-    private const int CurrentControllerDataVersion = 9;
+    private const int CurrentControllerDataVersion = 10;
 
     public enum FootSide
     {
@@ -114,6 +114,37 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
     [Tooltip("Small extra lift above the measured surface. Use this to keep the shoe mesh out of the stair.")]
     [SerializeField, Min(0f)] private float footSoleExtraClearance = 0.02f;
 
+    [Header("Collider Foot Surface Guard")]
+    [Tooltip("During Lead/Join, use floor/stair colliders as surface sensors so the animated moving foot cannot pass through a tread.")]
+    [SerializeField] private bool enableMovingFootSurfaceGuard = true;
+
+    [Tooltip("Small visual sole gap above the detected surface, after calibrated ankle-to-sole clearance is accounted for.")]
+    [SerializeField, Range(0f, 0.03f)] private float movingFootSurfaceMargin = 0.006f;
+
+    [Tooltip("Reject larger corrections as unrelated/incorrect surface hits.")]
+    [SerializeField, Range(0.01f, 0.20f)] private float movingFootSurfaceMaxCorrection = 0.10f;
+
+    [Header("Multi-Point Sole Guard")]
+    [Tooltip("Checks ankle, toe and heel-area samples instead of only the ankle. This prevents the front of the shoe from visually entering a tread while the ankle itself is still above it.")]
+    [SerializeField] private bool enableMultiPointSoleGuard = true;
+
+    [Tooltip("Radius used by the collider probe around sole sample points. A small sphere catches the stair edge earlier than a single ray.")]
+    [SerializeField, Range(0.005f, 0.06f)] private float soleSurfaceProbeRadius = 0.025f;
+
+    [Tooltip("Extra sample distance in front of the humanoid Toe bone to cover the visible shoe tip.")]
+    [SerializeField, Range(0f, 0.10f)] private float soleToeTipProbeDistance = 0.035f;
+
+    [Tooltip("Sample distance behind the Foot bone to cover the heel area.")]
+    [SerializeField, Range(0f, 0.10f)] private float soleHeelProbeDistance = 0.045f;
+
+    [Tooltip("When a moving sole is actually touching/crossing a tread, increase foot rotation stabilization so the toe cannot remain pitched into the stair.")]
+    [SerializeField, Range(0f, 1f)] private float surfaceContactRotationWeight = 0.85f;
+
+    [Tooltip("After completed-step Idle is restored, lift the character root just enough that neither calibrated sole is below the collider surface.")]
+    [SerializeField] private bool enableStandingFootSurfaceCorrection = true;
+
+    [SerializeField, Range(0f, 0.03f)] private float standingFootSurfaceMargin = 0.006f;
+
     [SerializeField] private bool preserveInitialRotation = true;
 
     [Header("Foot Lock")]
@@ -177,6 +208,8 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
 
     private Transform rightFootBone;
     private Transform leftFootBone;
+    private Transform rightToeBone;
+    private Transform leftToeBone;
 
     private Vector3 initialRootPosition;
     private Quaternion initialRootRotation;
@@ -195,6 +228,8 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
 
     private float initialRightFootClearance;
     private float initialLeftFootClearance;
+    private float initialRightToeClearance;
+    private float initialLeftToeClearance;
     private float initialAverageFootClearance;
 
     private float initialRightForwardOffset;
@@ -286,31 +321,129 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
             return;
         }
 
-        ApplyFootLock(AvatarIKGoal.RightFoot, rightFootLock);
-        ApplyFootLock(AvatarIKGoal.LeftFoot, leftFootLock);
+        // IMPORTANT (Fix 05): do not override animator.bodyPosition/bodyRotation here.
+        // The previous body guard fought the Humanoid solver and could preserve a
+        // crouched/leaning pose on the stair. We keep only the swing-foot no-backstep
+        // guard below; the torso is now normalized by the real Idle state after Join.
+        // Fix 11: do not manually rotate Spine/Chest during Join.
+        // The source animation now owns the upper body completely; only pelvis/root
+        // translation and leg IK are coordinated procedurally. This removes the
+        // robotic torso correction that remained visible in Fix 10.
+
+        // Set knee bend direction before resolving the foot IK targets. The hint
+        // chooses the bend plane; the procedural foot reach constraint creates the
+        // actual flexion angle.
+        ApplyProceduralJoinKneeHint();
+        ApplyFootLock(AvatarIKGoal.RightFoot, rightFootLock, FootSide.Right);
+        ApplyFootLock(AvatarIKGoal.LeftFoot, leftFootLock, FootSide.Left);
     }
 
-    private void ApplyFootLock(AvatarIKGoal goal, FootLockState footLock)
+    private void ApplyFootLock(
+        AvatarIKGoal goal,
+        FootLockState footLock,
+        FootSide footSide
+    )
     {
-        if (!footLock.Active)
+        Vector3 animatedPosition = animator.GetIKPosition(goal);
+        Vector3 requestedTarget = animatedPosition;
+        float requestedWeight = 0f;
+
+        bool proceduralJoinFoot =
+            proceduralJoinSwingActive &&
+            proceduralJoinSwingWeight > 0f &&
+            footSide == proceduralJoinSwingFoot;
+
+        bool guardMovingFoot =
+            leadTakeoffGuardActive &&
+            leadTakeoffGuardWeight > 0f &&
+            footSide == leadTakeoffGuardFoot;
+
+        if (proceduralJoinFoot)
         {
-            animator.SetIKPositionWeight(goal, 0f);
+            requestedWeight = Mathf.Clamp01(proceduralJoinSwingWeight);
+            requestedTarget = proceduralJoinSwingPosition;
+        }
+        else if (guardMovingFoot)
+        {
+            Vector3 guardedPosition = animatedPosition;
+            float backwardDistance = Vector3.Dot(
+                animatedPosition - leadTakeoffFootStartPosition,
+                climbDirection
+            );
+
+            if (backwardDistance < 0f)
+            {
+                guardedPosition -= climbDirection * backwardDistance;
+            }
+
+            if (footLock.Active && footLock.PositionWeight > 0f)
+            {
+                guardedPosition = Vector3.Lerp(
+                    guardedPosition,
+                    footLock.Position,
+                    Mathf.Clamp01(footLock.PositionWeight)
+                );
+            }
+
+            requestedWeight = Mathf.Clamp01(leadTakeoffGuardWeight);
+            requestedTarget = Vector3.Lerp(
+                animatedPosition,
+                guardedPosition,
+                requestedWeight
+            );
+        }
+        else if (footLock.Active)
+        {
+            requestedWeight = Mathf.Clamp01(footLock.PositionWeight);
+            requestedTarget = footLock.Position;
+        }
+
+        // Estimate the position produced by the current IK target/weight so a surface
+        // correction can be applied without changing the existing horizontal motion.
+        Vector3 effectivePosition = Vector3.Lerp(
+            animatedPosition,
+            requestedTarget,
+            requestedWeight
+        );
+
+        // Collider-backed surface protection. Animator/Humanoid bone motion is not a
+        // Rigidbody collision response, so the stair collider is sampled as a sensor.
+        // If the moving shoe would penetrate the surface, clamp only Y upward.
+        bool guardAgainstSurface =
+            enableMovingFootSurfaceGuard &&
+            movingFootSurfaceGuardActive &&
+            footSide == movingFootSurfaceGuardFoot;
+
+        bool surfaceCorrectionApplied = false;
+        if (guardAgainstSurface)
+        {
+            float correction = CalculateMovingSoleSurfaceLift(
+                footSide,
+                animatedPosition,
+                effectivePosition
+            );
+
+            if (correction > 0f && correction <= movingFootSurfaceMaxCorrection)
+            {
+                effectivePosition.y += correction;
+                requestedTarget = effectivePosition;
+                requestedWeight = 1f;
+                surfaceCorrectionApplied = true;
+            }
+        }
+
+        animator.SetIKPositionWeight(goal, requestedWeight);
+        if (requestedWeight > 0f)
+        {
+            animator.SetIKPosition(goal, requestedTarget);
+        }
+
+        if (!footLock.Active || !enableFootRotationIK || footLock.RotationWeight <= 0f)
+        {
             animator.SetIKRotationWeight(goal, 0f);
             return;
         }
 
-        animator.SetIKPositionWeight(goal, footLock.PositionWeight);
-        animator.SetIKPosition(goal, footLock.Position);
-
-        if (!enableFootRotationIK || footLock.RotationWeight <= 0f)
-        {
-            animator.SetIKRotationWeight(goal, 0f);
-            return;
-        }
-
-        // Clamp the requested correction relative to the animation pose. This preserves
-        // the useful foot angle lock while preventing mirrored/retargeted clips from
-        // forcing a large ankle twist.
         Quaternion animatedRotation = animator.GetIKRotation(goal);
         Quaternion safeTargetRotation = Quaternion.RotateTowards(
             animatedRotation,
@@ -318,7 +451,13 @@ public sealed partial class StairClimbControllerV2 : MonoBehaviour
             maxFootRotationCorrection
         );
 
-        animator.SetIKRotationWeight(goal, footLock.RotationWeight);
+        float rotationWeight = footLock.RotationWeight;
+        if (surfaceCorrectionApplied)
+        {
+            rotationWeight = Mathf.Max(rotationWeight, surfaceContactRotationWeight);
+        }
+
+        animator.SetIKRotationWeight(goal, Mathf.Clamp01(rotationWeight));
         animator.SetIKRotation(goal, safeTargetRotation);
     }
 
