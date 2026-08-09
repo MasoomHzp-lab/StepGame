@@ -3,12 +3,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Right / left / total muscle-power display.
-/// v3 adds:
-/// - inspector live-test mode
-/// - separate API entry points
-/// - clear distinction between test data and real external data
+/// Displays right / left / total muscle-strength values.
+/// References are auto-wired from MusclePowerPanel so the UI keeps working
+/// even if serialized references were lost while scripts were replaced.
 /// </summary>
+[DisallowMultipleComponent]
 public class StairGamePowerUI : MonoBehaviour
 {
     [Header("Texts")]
@@ -25,7 +24,7 @@ public class StairGamePowerUI : MonoBehaviour
     [SerializeField, Min(1f)] private float maximumValue = 100f;
     [SerializeField] private string unit = "%";
 
-    [Header("Debug Test - Disable When API Is Connected")]
+    [Header("Debug Preview")]
     [SerializeField] private bool useTestValues = false;
     [SerializeField, Range(0f, 100f)] private float testRightPower = 72f;
     [SerializeField, Range(0f, 100f)] private float testLeftPower = 68f;
@@ -39,8 +38,14 @@ public class StairGamePowerUI : MonoBehaviour
     public float LeftPower => leftPower;
     public float TotalPower => totalPower;
 
+    private void Awake()
+    {
+        AutoWireReferences();
+    }
+
     private void Start()
     {
+        AutoWireReferences();
         ConfigureBar(rightPowerBar);
         ConfigureBar(leftPowerBar);
         ConfigureBar(totalPowerBar);
@@ -48,63 +53,136 @@ public class StairGamePowerUI : MonoBehaviour
         if (useTestValues)
             ApplyTestValues();
         else
-            SetPowerValues(0f, 0f, 0f);
+            ApplyValues(0f, 0f, 0f);
     }
 
     private void Update()
     {
-        // Lets you move the three Inspector test sliders during Play Mode
-        // and instantly verify that the UI wiring works.
         if (useTestValues)
             ApplyTestValues();
     }
 
-    /// <summary>
-    /// API entry point when total = average of right and left.
-    /// </summary>
     public void SetPowerValues(float right, float left)
     {
         SetPowerValues(right, left, (right + left) * 0.5f);
     }
 
-    /// <summary>
-    /// API entry point when the API provides right, left and total separately.
-    /// </summary>
     public void SetPowerValues(float right, float left, float total)
     {
-        // Real API data should take control once explicitly received.
         useTestValues = false;
-
+        AutoWireReferences();
         ApplyValues(right, left, total);
     }
 
     public void SetRightPowerFromApi(float right)
     {
         useTestValues = false;
+        AutoWireReferences();
         ApplyValues(right, leftPower, (right + leftPower) * 0.5f);
     }
 
     public void SetLeftPowerFromApi(float left)
     {
         useTestValues = false;
+        AutoWireReferences();
         ApplyValues(rightPower, left, (rightPower + left) * 0.5f);
     }
 
     public void SetTotalPowerFromApi(float total)
     {
         useTestValues = false;
+        AutoWireReferences();
         ApplyValues(rightPower, leftPower, total);
     }
 
     public void SetMaximumValue(float maxValue)
     {
         maximumValue = Mathf.Max(1f, maxValue);
-
         ConfigureBar(rightPowerBar);
         ConfigureBar(leftPowerBar);
         ConfigureBar(totalPowerBar);
-
         Refresh();
+    }
+
+    /// <summary>
+    /// Reconnects the existing StepGame UI by hierarchy names:
+    /// RightPowerRow / LeftPowerRow / TotalPowerRow and each row's "Total value" text.
+    /// Safe to call repeatedly.
+    /// </summary>
+    [ContextMenu("Auto Wire Power UI References")]
+    public void AutoWireReferences()
+    {
+        WireRow("RightPowerRow", ref rightPowerText, ref rightPowerBar);
+        WireRow("LeftPowerRow", ref leftPowerText, ref leftPowerBar);
+        WireRow("TotalPowerRow", ref totalPowerText, ref totalPowerBar);
+    }
+
+    public bool HasDisplayReferences()
+    {
+        return rightPowerText != null && leftPowerText != null && totalPowerText != null
+            && rightPowerBar != null && leftPowerBar != null && totalPowerBar != null;
+    }
+
+    private void WireRow(string rowName, ref TMP_Text valueText, ref Slider slider)
+    {
+        Transform row = FindDescendantByTrimmedName(transform, rowName);
+        if (row == null)
+            return;
+
+        if (slider == null)
+            slider = row.GetComponentInChildren<Slider>(true);
+
+        if (valueText == null)
+        {
+            TMP_Text[] texts = row.GetComponentsInChildren<TMP_Text>(true);
+
+            // The current StepGame scene names the numeric field "Total value"
+            // in all three power rows.
+            for (int i = 0; i < texts.Length; i++)
+            {
+                if (NormalizeName(texts[i].gameObject.name) == "total value")
+                {
+                    valueText = texts[i];
+                    break;
+                }
+            }
+
+            // Fallback: choose a text whose name contains "value".
+            if (valueText == null)
+            {
+                for (int i = 0; i < texts.Length; i++)
+                {
+                    if (NormalizeName(texts[i].gameObject.name).Contains("value"))
+                    {
+                        valueText = texts[i];
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static Transform FindDescendantByTrimmedName(Transform root, string wantedName)
+    {
+        string wanted = NormalizeName(wantedName);
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (NormalizeName(child.name) == wanted)
+                return child;
+
+            Transform nested = FindDescendantByTrimmedName(child, wantedName);
+            if (nested != null)
+                return nested;
+        }
+
+        return null;
+    }
+
+    private static string NormalizeName(string value)
+    {
+        return string.IsNullOrEmpty(value) ? string.Empty : value.Trim().ToLowerInvariant();
     }
 
     private void ApplyTestValues()
@@ -117,7 +195,6 @@ public class StairGamePowerUI : MonoBehaviour
         rightPower = Mathf.Clamp(right, 0f, maximumValue);
         leftPower = Mathf.Clamp(left, 0f, maximumValue);
         totalPower = Mathf.Clamp(total, 0f, maximumValue);
-
         Refresh();
     }
 
@@ -159,6 +236,7 @@ public class StairGamePowerUI : MonoBehaviour
         testRightPower = 72f;
         testLeftPower = 68f;
         testTotalPower = 70f;
+        AutoWireReferences();
         ApplyTestValues();
     }
 

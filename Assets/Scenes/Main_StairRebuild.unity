@@ -816,6 +816,8 @@ GameObject:
   - component: {fileID: 112985463}
   - component: {fileID: 112985465}
   - component: {fileID: 112985464}
+  - component: {fileID: 112985466}
+  - component: {fileID: 112985467}
   m_Layer: 5
   m_Name: MusclePowerPanel
   m_TagString: Untagged
@@ -884,6 +886,49 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 112985462}
   m_CullTransparentMesh: 1
+--- !u!114 &112985466
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 112985462}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6401dc1690e968f4595f98227a482c20, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StairGamePowerUI
+  rightPowerText: {fileID: 511895165}
+  leftPowerText: {fileID: 290521256}
+  totalPowerText: {fileID: 848292850}
+  rightPowerBar: {fileID: 405688483}
+  leftPowerBar: {fileID: 857119027}
+  totalPowerBar: {fileID: 2145549160}
+  maximumValue: 100
+  unit: '%'
+  useTestValues: 0
+  testRightPower: 72
+  testLeftPower: 68
+  testTotalPower: 70
+--- !u!114 &112985467
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 112985462}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d2d7dfad32e25d4e848be768fb07840, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StairGameKeyboardPowerTest
+  powerUI: {fileID: 112985466}
+  enableKeyboardTest: 1
+  minimumStrength: 62
+  maximumStrength: 88
+  response: 0.7
+  displayDurationSeconds: 3
+  logSamplesToConsole: 1
 --- !u!1 &121689214
 GameObject:
   m_ObjectHideFlags: 0
@@ -8392,6 +8437,80 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 762068992}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &763474225
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 763474228}
+  - component: {fileID: 763474227}
+  - component: {fileID: 763474226}
+  m_Layer: 0
+  m_Name: StairGame_API
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &763474226
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 763474225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6c70c053264f02742bc1f2e4c9236e5d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StairGame.Api.Unity.StairGameApiBridge
+  stairController: {fileID: 649167391545103882}
+  stairPath: {fileID: 680838422}
+  powerUI: {fileID: 112985466}
+  movementEvaluator: {fileID: 763474227}
+  enforceStartingFoot: 1
+  logApiCalls: 1
+--- !u!114 &763474227
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 763474225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b94bf49a3de98843889033591051472, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StairGame.Api.Unity.StairMovementEvaluator
+  forwardAxis: 1
+  forwardIsPositive: 1
+  minimumAnkleLift: 0.07
+  stairHeightLiftFraction: 0.55
+  minimumForwardTravel: 0.06
+  stairDepthForwardFraction: 0.25
+  stableSamplesToRebaseline: 5
+  settledVerticalSpeed: 0.1
+  settledForwardSpeed: 0.12
+  forceRebaselineAfterMilliseconds: 1500
+  logAcceptedThresholds: 0
+--- !u!4 &763474228
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 763474225}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &765935176
 GameObject:
   m_ObjectHideFlags: 0
@@ -40018,3 +40137,4 @@ SceneRoots:
   - {fileID: 555806206328764732}
   - {fileID: 16846879}
   - {fileID: 836100302}
+  - {fileID: 763474228}
