@@ -23356,7 +23356,7 @@ MonoBehaviour:
   leadMoveStart: 0.2
   leadMoveEnd: 0.88
   joinMoveStart: 0.05
-  joinMoveEnd: 0.84
+  joinMoveEnd: 0.72
   leadFootPlantBlendStart: 0.72
   joinFootPlantBlendStart: 0.68
   leadPhaseCompletionTime: 0.88

@@ -91,6 +91,13 @@ public static class StairAnimationImportFixer
             {
                 foundJoin = true;
                 ConfigureInPlaceClip(clip, false);
+
+                // IMPORTANT: Join contains recorded horizontal root translation.
+                // Baking XZ into the humanoid pose makes the pelvis/body slide inside
+                // the GameObject even though applyRootMotion is disabled. Extract XZ
+                // as root motion so the procedural movementRoot is the only XZ source.
+                clip.lockRootPositionXZ = false;
+                clip.keepOriginalPositionXZ = true;
             }
         }
 
